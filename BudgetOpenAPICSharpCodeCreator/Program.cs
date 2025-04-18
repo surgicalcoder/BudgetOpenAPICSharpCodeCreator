@@ -180,7 +180,7 @@ catch (Exception ex)
             await GenerateProjectFile();
         }
 
-        private async Task GenerateModels()
+                private async Task GenerateModels()
         {
             if (_openApiDoc.Components?.Schemas == null)
             {
@@ -189,67 +189,104 @@ catch (Exception ex)
 
             foreach (var schema in _openApiDoc.Components.Schemas)
             {
-                string className = ToPascalCase(schema.Key);
+                string className;
+                bool isIFormFile = schema.Key.Equals("IFormFile", StringComparison.OrdinalIgnoreCase);
+
+                // If IFormFile schema, create a FormFile class instead
+                if (isIFormFile)
+                {
+                    className = "FormFile";
+                }
+                else
+                {
+                    // Preserve original schema key (no Pascal-casing)
+                    className = schema.Key;
+                }
+
                 _schemaToClassMapping[$"#/components/schemas/{schema.Key}"] = className;
                 
                 var modelBuilder = new StringBuilder();
                 modelBuilder.AppendLine("using System;");
-                modelBuilder.AppendLine("using System.Collections.Generic;");
+                if (isIFormFile)
+                {
+                    modelBuilder.AppendLine("using System.IO;");
+                }
+                else
+                {
+                    modelBuilder.AppendLine("using System.Collections.Generic;");
+                }
                 modelBuilder.AppendLine("using System.Text.Json.Serialization;");
                 modelBuilder.AppendLine();
                 modelBuilder.AppendLine($"namespace {GetNamespaceName()}.Models;");
                 modelBuilder.AppendLine();
-                modelBuilder.AppendLine($"    public class {className}");
-                modelBuilder.AppendLine("    {");
 
-                // Generate properties
-                if (schema.Value.Properties != null)
+                if (isIFormFile)
                 {
-                    foreach (var property in schema.Value.Properties)
-                    {
-                        string propertyType = GetPropertyType(property.Value);
-                        string propertyName = ToPascalCase(property.Key);
-                        
-                        modelBuilder.AppendLine($"        [JsonPropertyName(\"{property.Key}\")]");
-                        modelBuilder.AppendLine($"        public {propertyType} {propertyName} {{ get; set; }}");
-                        modelBuilder.AppendLine();
-                    }
-                }
-                
-                // Handle enum types
-                if (schema.Value.Type == "integer" && schema.Value.Format == null)
-                {
-                    modelBuilder.Clear();
-                    modelBuilder.AppendLine("using System;");
-                    modelBuilder.AppendLine("using System.Text.Json.Serialization;");
-                    modelBuilder.AppendLine();
-                    modelBuilder.AppendLine($"namespace {GetNamespaceName()}.Models;");
-                    modelBuilder.AppendLine($"    public enum {className}");
+                    // Generate FormFile class
+                    modelBuilder.AppendLine($"    public class {className}");
                     modelBuilder.AppendLine("    {");
-                    modelBuilder.AppendLine("        // Note: Add enum values as needed");
-                    modelBuilder.AppendLine("        Undefined = 0,");
+                    modelBuilder.AppendLine("        public Stream FileStream { get; set; }");
+                    modelBuilder.AppendLine();
+                    modelBuilder.AppendLine("        public string FileName { get; set; }");
+                    modelBuilder.AppendLine("    }");
+                   // modelBuilder.AppendLine("}");
                 }
-                
-                modelBuilder.AppendLine("}");
+                else
+                {
+                    modelBuilder.AppendLine($"    public class {className}");
+                    modelBuilder.AppendLine("    {");
+
+                    // Generate properties for other schemas
+                    if (schema.Value.Properties != null)
+                    {
+                        foreach (var property in schema.Value.Properties)
+                        {
+                            string propertyType = GetPropertyType(property.Value);
+
+                            if (propertyType == "IFormFile?")
+                            {
+                                propertyType = "FormFile?";
+                            }
+                            string propertyName = ToPascalCase(property.Key);
+
+                            modelBuilder.AppendLine($"        [JsonPropertyName(\"{property.Key}\")]\n        public {propertyType} {propertyName} {{ get; set; }}\n");
+                        }
+                    }
+
+                    // Enum placeholder
+                    if (schema.Value.Type == "integer" && schema.Value.Format == null)
+                    {
+                        // Overwrite as enum
+                        var enumBuilder = new StringBuilder();
+                        enumBuilder.AppendLine("using System;");
+                        enumBuilder.AppendLine("using System.Text.Json.Serialization;");
+                        enumBuilder.AppendLine($"namespace {GetNamespaceName()}.Models;");
+                        enumBuilder.AppendLine($"    public enum {className}");
+                        enumBuilder.AppendLine("    {");
+                        enumBuilder.AppendLine("        Undefined = 0,");
+                        /*enumBuilder.AppendLine("    }");
+                        enumBuilder.AppendLine("}");*/
+                        modelBuilder.Clear();
+                        modelBuilder.Append(enumBuilder.ToString());
+                    }
+
+                    modelBuilder.AppendLine("    }");
+                   // modelBuilder.AppendLine("}");
+                }
 
                 string modelContent = modelBuilder.ToString();
-                
-                // Format code using Roslyn
                 string formattedCode = FormatCode(modelContent);
-                
-                string modelFilePath = Path.Combine(_outputDirectory, "Models", $"{className}.cs");
-                
-                // Create the Models directory if it doesn't exist
-                Directory.CreateDirectory(Path.Combine(_outputDirectory, "Models"));
-                
+                string modelsDir = Path.Combine(_outputDirectory, "Models");
+                Directory.CreateDirectory(modelsDir);
+                string modelFilePath = Path.Combine(modelsDir, $"{className}.cs");
                 await File.WriteAllTextAsync(modelFilePath, formattedCode);
             }
         }
 
+
         private async Task GenerateClientClass()
         {
             var clientBuilder = new StringBuilder();
-            
             clientBuilder.AppendLine("using System;");
             clientBuilder.AppendLine("using System.Collections.Generic;");
             clientBuilder.AppendLine("using System.Net.Http;");
@@ -266,16 +303,7 @@ catch (Exception ex)
             clientBuilder.AppendLine($"    public class {GetClientName()}Options");
             clientBuilder.AppendLine("    {");
             clientBuilder.AppendLine("        public string BaseUrl { get; set; } = \"http://localhost\";");
-            
-            if (HasApiKeyAuth())
-            {
-                var apiKeyScheme = _openApiDoc.Components.SecuritySchemes.FirstOrDefault(s => s.Value.Type == "apiKey");
-                if (apiKeyScheme.Value != null)
-                {
-                    clientBuilder.AppendLine($"        public string ApiKey {{ get; set; }}");
-                }
-            }
-            
+            if (HasApiKeyAuth()) clientBuilder.AppendLine("        public string ApiKey { get; set; }");
             clientBuilder.AppendLine("    }");
             clientBuilder.AppendLine();
 
@@ -285,8 +313,6 @@ catch (Exception ex)
             clientBuilder.AppendLine("        private readonly HttpClient _httpClient;");
             clientBuilder.AppendLine($"        private readonly {GetClientName()}Options _options;");
             clientBuilder.AppendLine();
-            
-            // Constructor
             clientBuilder.AppendLine($"        public {GetClientName()}({GetClientName()}Options options)");
             clientBuilder.AppendLine("        {");
             clientBuilder.AppendLine("            _options = options ?? throw new ArgumentNullException(nameof(options));");
@@ -294,19 +320,13 @@ catch (Exception ex)
             clientBuilder.AppendLine("            _httpClient.BaseAddress = new Uri(options.BaseUrl);");
             clientBuilder.AppendLine("        }");
             clientBuilder.AppendLine();
-            
-            // Generate methods for each path
+
             GenerateClientMethods(clientBuilder);
-            
             clientBuilder.AppendLine("    }");
-            
             string clientContent = clientBuilder.ToString();
-            
-            // Format code using Roslyn
-            string formattedCode = FormatCode(clientContent);
-            
+            string formattedClient = FormatCode(clientContent);
             string clientFilePath = Path.Combine(_outputDirectory, $"{GetClientName()}.cs");
-            await File.WriteAllTextAsync(clientFilePath, formattedCode);
+            await File.WriteAllTextAsync(clientFilePath, formattedClient);
         }
 
         private void GenerateClientMethods(StringBuilder clientBuilder)
@@ -315,231 +335,94 @@ catch (Exception ex)
             {
                 var pathItem = path.Value;
                 string routePath = path.Key;
-                
-                // Handle GET operations
-                if (pathItem.Get != null)
-                {
-                    GenerateMethod(clientBuilder, "Get", routePath, pathItem.Get);
-                }
-                
-                // Handle POST operations
-                if (pathItem.Post != null)
-                {
-                    GenerateMethod(clientBuilder, "Post", routePath, pathItem.Post);
-                }
-                
-                // Handle PUT operations
-                if (pathItem.Put != null)
-                {
-                    GenerateMethod(clientBuilder, "Put", routePath, pathItem.Put);
-                }
-                
-                // Handle DELETE operations
-                if (pathItem.Delete != null)
-                {
-                    GenerateMethod(clientBuilder, "Delete", routePath, pathItem.Delete);
-                }
+                if (pathItem.Get != null) GenerateMethod(clientBuilder, "Get", routePath, pathItem.Get);
+                if (pathItem.Post != null) GenerateMethod(clientBuilder, "Post", routePath, pathItem.Post);
+                if (pathItem.Put != null) GenerateMethod(clientBuilder, "Put", routePath, pathItem.Put);
+                if (pathItem.Delete != null) GenerateMethod(clientBuilder, "Delete", routePath, pathItem.Delete);
             }
         }
 
-        private void GenerateMethod(StringBuilder clientBuilder, string httpMethod, string routePath, OperationObject operation)
+                private void GenerateMethod(StringBuilder clientBuilder, string httpMethod, string routePath, OperationObject operation)
         {
             string methodName = GetMethodName(httpMethod, routePath, operation);
             string returnType = GetResponseType(operation);
-            
-            // Generate method signature with parameters
-            clientBuilder.AppendLine($"        public async Task{(returnType == "void" ? string.Empty : $"<{returnType}>")} {methodName}(");
-            
-            // Add method parameters - properly organizing required and optional parameters
-            var requiredParameters = new List<string>();
-            var optionalParameters = new List<string>();
-            
-            // Path parameters - these are always required
-            if (operation.Parameters != null)
-            {
-                foreach (var param in operation.Parameters.Where(p => p.In == "path"))
-                {
-                    string paramType = GetParameterType(param.Schema);
-                    requiredParameters.Add($"{paramType} {ToPascalCase(param.Name)}");
-                }
-            }
-            
-            // Header parameters (excluding the API key, which we handle globally)
+            clientBuilder.AppendLine($"        public async Task{(returnType == "void" ? "" : $"<{returnType}>")} {methodName}(");
+            var requiredParams = new List<string>();
+            var optionalParams = new List<string>();
+            // Path params
+            if (operation.Parameters != null) foreach (var param in operation.Parameters.Where(p => p.In == "path"))
+                requiredParams.Add($"{GetParameterType(param.Schema)} {ToPascalCase(param.Name)}");
+            // Header params
             if (operation.Parameters != null)
             {
                 foreach (var param in operation.Parameters.Where(p => p.In == "header" && p.Name != "X-Api-Key"))
                 {
-                    string paramType = GetParameterType(param.Schema);
-                    string paramName = ToCamelCase(param.Name.Replace("-", ""));
-                    
-                    if (param.Required)
-                    {
-                        requiredParameters.Add($"{paramType} {paramName}");
-                    }
-                    else
-                    {
-                        optionalParameters.Add($"{paramType} {paramName} = null");
-                    }
+                    var ptype = GetParameterType(param.Schema);
+                    var pname = ToCamelCase(param.Name.Replace("-", ""));
+                    if (param.Required) requiredParams.Add($"{ptype} {pname}");
+                    else optionalParams.Add($"{ptype} {pname} = null");
                 }
             }
-            
-            // Request body parameter - typically required
+            // RequestBody
             if (operation.RequestBody != null)
             {
-                string bodyType = GetRequestBodyType(operation.RequestBody);
-                
-                if (operation.RequestBody.Required)
-                {
-                    requiredParameters.Add($"{bodyType} requestBody");
-                }
-                else
-                {
-                    optionalParameters.Add($"{bodyType} requestBody = null");
-                }
-                
-                // Special handling for multipart/form-data with file upload
-                if (operation.RequestBody.Content.ContainsKey("multipart/form-data"))
-                {
-                    var schemaRef = operation.RequestBody.Content["multipart/form-data"].Schema?.Reference;
-                    if (schemaRef != null && _schemaToClassMapping.TryGetValue(schemaRef, out var className))
-                    {
-                        // For file uploads, add Stream parameter - these are optional
-                        optionalParameters.Add("Stream fileStream = null");
-                        optionalParameters.Add("string fileName = null");
-                    }
-                }
+                var bodyType = GetRequestBodyType(operation.RequestBody);
+                if (operation.RequestBody.Required) requiredParams.Add($"{bodyType} requestBody");
+                else optionalParams.Add($"{bodyType} requestBody = null");
             }
-            
-            // Combine parameters - required first, then optional
-            var allParameters = requiredParameters.Concat(optionalParameters).ToList();
-            
-            if (allParameters.Any())
-            {
-                clientBuilder.AppendLine(string.Join("," + Environment.NewLine + "            ", allParameters));
-            }
-            
+            var allParams = requiredParams.Concat(optionalParams).ToList();
+            if (allParams.Any()) clientBuilder.AppendLine(string.Join(",\n            ", allParams));
             clientBuilder.AppendLine("        )");
             clientBuilder.AppendLine("        {");
-            
-            // Method implementation
-            clientBuilder.AppendLine($"            var requestUri = $\"{routePath.Replace("{", "{")}\";");
-            
-            // Add API Key header if required
-            if (HasApiKeyAuth())
-            {
-                clientBuilder.AppendLine("            if (!string.IsNullOrEmpty(_options.ApiKey))");
-                clientBuilder.AppendLine("            {");
-                clientBuilder.AppendLine("                _httpClient.DefaultRequestHeaders.Add(\"X-Api-Key\", _options.ApiKey);");
-                clientBuilder.AppendLine("            }");
-            }
-            
-            // Add other headers
+            clientBuilder.AppendLine($"            var requestUri = \"{routePath}\";");
+            if (HasApiKeyAuth()) clientBuilder.AppendLine("            if (!string.IsNullOrEmpty(_options.ApiKey)) { _httpClient.DefaultRequestHeaders.Add(\"X-Api-Key\", _options.ApiKey); }");
             if (operation.Parameters != null)
             {
                 foreach (var param in operation.Parameters.Where(p => p.In == "header" && p.Name != "X-Api-Key"))
                 {
-                    string paramName = ToCamelCase(param.Name.Replace("-", ""));
-                    
-                    clientBuilder.AppendLine($"            if ({paramName} != null)");
-                    clientBuilder.AppendLine("            {");
-                    clientBuilder.AppendLine($"                _httpClient.DefaultRequestHeaders.Add(\"{param.Name}\", {paramName});");
-                    clientBuilder.AppendLine("            }");
+                    var pname = ToCamelCase(param.Name.Replace("-", ""));
+                    clientBuilder.AppendLine($"            if ({pname} != null) _httpClient.DefaultRequestHeaders.Add(\"{param.Name}\", {pname});");
                 }
             }
-            
-            // Handle the HTTP request based on method type
-            if (httpMethod == "Get")
-            {
-                clientBuilder.AppendLine("            var response = await _httpClient.GetAsync(requestUri);");
-            }
-            else if (httpMethod == "Delete")
-            {
-                clientBuilder.AppendLine("            var response = await _httpClient.DeleteAsync(requestUri);");
-            }
+            // HTTP call
+            if (httpMethod == "Get") clientBuilder.AppendLine("            var response = await _httpClient.GetAsync(requestUri);");
+            else if (httpMethod == "Delete") clientBuilder.AppendLine("            var response = await _httpClient.DeleteAsync(requestUri);");
             else if (httpMethod == "Post" || httpMethod == "Put")
             {
-                if (operation.RequestBody != null)
+                if (operation.RequestBody != null && operation.RequestBody.Content.ContainsKey("multipart/form-data"))
                 {
-                    if (operation.RequestBody.Content.ContainsKey("multipart/form-data"))
-                    {
-                        // Handle multipart/form-data
-                        clientBuilder.AppendLine("            using var content = new MultipartFormDataContent();");
-                        clientBuilder.AppendLine();
-                        clientBuilder.AppendLine("            // Add form fields from the request body");
-                        clientBuilder.AppendLine("            var requestProps = typeof(FileConversionRequestInput).GetProperties();");
-                        clientBuilder.AppendLine("            foreach (var prop in requestProps)");
-                        clientBuilder.AppendLine("            {");
-                        clientBuilder.AppendLine("                // Skip file property as it's handled separately");
-                        clientBuilder.AppendLine("                if (prop.Name.Equals(\"file\", StringComparison.OrdinalIgnoreCase))");
-                        clientBuilder.AppendLine("                    continue;");
-                        clientBuilder.AppendLine();
-                        clientBuilder.AppendLine("                var value = prop.GetValue(requestBody);");
-                        clientBuilder.AppendLine("                if (value != null)");
-                        clientBuilder.AppendLine("                {");
-                        clientBuilder.AppendLine("                    content.Add(new StringContent(value.ToString()), prop.Name);");
-                        clientBuilder.AppendLine("                }");
-                        clientBuilder.AppendLine("            }");
-                        clientBuilder.AppendLine();
-                        clientBuilder.AppendLine("            // Add file content if provided");
-                        clientBuilder.AppendLine("            if (fileStream != null)");
-                        clientBuilder.AppendLine("            {");
-                        clientBuilder.AppendLine("                var fileContent = new StreamContent(fileStream);");
-                        clientBuilder.AppendLine("                content.Add(fileContent, \"file\", fileName ?? \"file\");");
-                        clientBuilder.AppendLine("            }");
-                        clientBuilder.AppendLine();
-                        
-                        if (httpMethod == "Post")
-                        {
-                            clientBuilder.AppendLine("            var response = await _httpClient.PostAsync(requestUri, content);");
-                        }
-                        else
-                        {
-                            clientBuilder.AppendLine("            var response = await _httpClient.PutAsync(requestUri, content);");
-                        }
-                    }
-                    else if (operation.RequestBody.Content.ContainsKey("application/json"))
-                    {
-                        // Handle JSON request body
-                        if (httpMethod == "Post")
-                        {
-                            clientBuilder.AppendLine("            var response = await _httpClient.PostAsJsonAsync(requestUri, requestBody);");
-                        }
-                        else
-                        {
-                            clientBuilder.AppendLine("            var response = await _httpClient.PutAsJsonAsync(requestUri, requestBody);");
-                        }
-                    }
+                    clientBuilder.AppendLine("            using var content = new MultipartFormDataContent();");
+                    clientBuilder.AppendLine("            // Add other form fields");
+                    clientBuilder.AppendLine("            var requestProps = typeof(" + GetRequestBodyType(operation.RequestBody) + ").GetProperties();");
+                    clientBuilder.AppendLine("            foreach (var prop in requestProps) { if (prop.Name.Equals(\"File\", StringComparison.OrdinalIgnoreCase)) continue; var value = prop.GetValue(requestBody); if (value != null) content.Add(new StringContent(value.ToString()), prop.Name); }");
+                    clientBuilder.AppendLine();
+                    clientBuilder.AppendLine("            // Add file content from FormFile");
+                    clientBuilder.AppendLine("            if (requestBody.File != null) { var fileContent = new StreamContent(requestBody.File.FileStream); content.Add(fileContent, \"file\", requestBody.File.FileName); }");
+                    clientBuilder.AppendLine();
+                    clientBuilder.AppendLine(httpMethod == "Post"
+                        ? "            var response = await _httpClient.PostAsync(requestUri, content);"
+                        : "            var response = await _httpClient.PutAsync(requestUri, content);");
+                }
+                else if (operation.RequestBody != null && operation.RequestBody.Content.ContainsKey("application/json"))
+                {
+                    clientBuilder.AppendLine(httpMethod == "Post"
+                        ? "            var response = await _httpClient.PostAsJsonAsync(requestUri, requestBody);"
+                        : "            var response = await _httpClient.PutAsJsonAsync(requestUri, requestBody);");
                 }
                 else
                 {
-                    // No request body
-                    if (httpMethod == "Post")
-                    {
-                        clientBuilder.AppendLine("            var response = await _httpClient.PostAsync(requestUri, null);");
-                    }
-                    else
-                    {
-                        clientBuilder.AppendLine("            var response = await _httpClient.PutAsync(requestUri, null);");
-                    }
+                    clientBuilder.AppendLine(httpMethod == "Post"
+                        ? "            var response = await _httpClient.PostAsync(requestUri, null);"
+                        : "            var response = await _httpClient.PutAsync(requestUri, null);");
                 }
             }
-            
-            // Handle the response
             clientBuilder.AppendLine();
             clientBuilder.AppendLine("            response.EnsureSuccessStatusCode();");
-            
             if (returnType != "void")
             {
-                if (returnType == "Stream")
-                {
-                    clientBuilder.AppendLine("            return await response.Content.ReadAsStreamAsync();");
-                }
-                else
-                {
-                    clientBuilder.AppendLine($"            return await response.Content.ReadFromJsonAsync<{returnType}>();");
-                }
+                if (returnType == "Stream") clientBuilder.AppendLine("            return await response.Content.ReadAsStreamAsync();");
+                else clientBuilder.AppendLine($"            return await response.Content.ReadFromJsonAsync<{returnType}>();");
             }
-            
             clientBuilder.AppendLine("        }");
             clientBuilder.AppendLine();
         }
