@@ -123,6 +123,12 @@ catch (Exception ex)
         public SchemaObject Items { get; set; }
         public string Ref { get; set; }
         
+        [JsonPropertyName("enum")]
+        public List<int> EnumValues { get; set; }
+
+        [JsonPropertyName("x‑enum‑varnames")]
+        public List<string> EnumVarNames { get; set; }
+
         [JsonPropertyName("$ref")]
         public string Reference { get; set; }
     }
@@ -257,17 +263,46 @@ catch (Exception ex)
                     if (schema.Value is { Type: "integer", Format: null or "int16" or "int32" or "int64" })
                     {
                         // Overwrite as enum
-                        var enumBuilder = new StringBuilder();
-                        enumBuilder.AppendLine("using System;");
-                        enumBuilder.AppendLine("using System.Text.Json.Serialization;");
-                        enumBuilder.AppendLine($"namespace {GetNamespaceName()}.Models;");
-                        enumBuilder.AppendLine($"    public enum {className}");
-                        enumBuilder.AppendLine("    {");
-                        enumBuilder.AppendLine("        Undefined = 0,");
-                        /*enumBuilder.AppendLine("    }");
-                        enumBuilder.AppendLine("}");*/
-                        modelBuilder.Clear();
-                        modelBuilder.Append(enumBuilder.ToString());
+                        
+                        if (schema.Value.EnumValues is { Count: > 0 })
+                        {
+                            
+                            var enumNames  = schema.Value.EnumVarNames;
+                            var enumValues = schema.Value.EnumValues;
+
+                            var eb = new StringBuilder();
+                            eb.AppendLine("using System.Text.Json.Serialization;");
+                            eb.AppendLine();
+                            eb.AppendLine($"namespace {GetNamespaceName()}.Models;");
+                            eb.AppendLine();
+                            eb.AppendLine("/// <summary>");
+                            eb.AppendLine($"/// Auto‐generated enum for {schema.Key}");
+                            eb.AppendLine("/// </summary>");
+                            eb.AppendLine($"[JsonConverter(typeof(JsonStringEnumConverter))]");
+                            eb.AppendLine($"public enum {className}");
+                            eb.AppendLine("{");
+                            for (int i = 0; i < enumNames.Count; i++)
+                            {
+                                // e.g. Pending = 0,
+                                eb.AppendLine($"    {enumNames[i]} = {enumValues[i]},");
+                            }
+                            //eb.AppendLine("}");
+                            modelBuilder.Clear();
+                            modelBuilder.Append(eb.ToString());
+                        }
+                        else
+                        {
+
+                            var enumBuilder = new StringBuilder();
+                            enumBuilder.AppendLine("using System;");
+                            enumBuilder.AppendLine("using System.Text.Json.Serialization;");
+                            enumBuilder.AppendLine($"namespace {GetNamespaceName()}.Models;");
+                            enumBuilder.AppendLine($"    public enum {className}");
+                            enumBuilder.AppendLine("    {");
+                            enumBuilder.AppendLine("        Undefined = 0,");
+                            modelBuilder.Clear();
+                            modelBuilder.Append(enumBuilder.ToString());
+                        }
                     }
 
                     modelBuilder.AppendLine("    }");
