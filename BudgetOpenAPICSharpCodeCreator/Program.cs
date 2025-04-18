@@ -253,8 +253,8 @@ catch (Exception ex)
                         }
                     }
 
-                    // Enum placeholder
-                    if (schema.Value.Type == "integer" && schema.Value.Format == null)
+                    // Enum placeholder  
+                    if (schema.Value is { Type: "integer", Format: null or "int16" or "int32" or "int64" })
                     {
                         // Overwrite as enum
                         var enumBuilder = new StringBuilder();
