@@ -17,15 +17,28 @@ if (args.Length < 2)
 string inputFile = args[0];
 string outputDirectory = args[1];
 
-if (!File.Exists(inputFile))
-{
-    Console.WriteLine($"Input file {inputFile} does not exist");
-    return;
-}
-
 try
 {
-    string json = await File.ReadAllTextAsync(inputFile);
+    string json = string.Empty;
+    
+    if (inputFile.StartsWith("http"))
+    {
+        using var httpClient = new HttpClient();
+        var response = await httpClient.GetAsync(inputFile);
+        response.EnsureSuccessStatusCode();
+        json = await response.Content.ReadAsStringAsync();
+    }
+    else
+    {
+        if (!File.Exists(inputFile))
+        {
+            Console.WriteLine($"Input file {inputFile} does not exist");
+            return;
+        }
+        
+        json = await File.ReadAllTextAsync(inputFile);
+    }
+    
     var openApiDoc = JsonSerializer.Deserialize<OpenApiDocument>(json, new JsonSerializerOptions
     {
         PropertyNameCaseInsensitive = true
