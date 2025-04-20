@@ -297,7 +297,7 @@ class ClientGenerator
         if (allParams.Any()) clientBuilder.AppendLine(string.Join(",\n            ", allParams));
         clientBuilder.AppendLine("        )");
         clientBuilder.AppendLine("        {");
-        clientBuilder.AppendLine($"            var requestUri = \"{routePath}\";");
+        clientBuilder.AppendLine($"            var requestUri = $\"{routePath}\";");
         if (HasApiKeyAuth()) clientBuilder.AppendLine("            if (!string.IsNullOrEmpty(_options.ApiKey)) { _httpClient.DefaultRequestHeaders.Add(\"X-Api-Key\", _options.ApiKey); }");
 
         if (operation.Parameters != null)
