@@ -14,9 +14,10 @@ class ClientGenerator
     private readonly string _outputDirectory;
     private readonly string _namespaceOverride;
     private readonly string _baseUrl;
+    private readonly string _clientName;
     private readonly Dictionary<string, string> _schemaToClassMapping = new();
 
-    public ClientGenerator(OpenApiDocument openApiDoc, string outputDirectory, string namespaceOverride = default, string baseUrl = "https://localhost")
+    public ClientGenerator(OpenApiDocument openApiDoc, string outputDirectory, string namespaceOverride = default, string baseUrl = "https://localhost", string clientName = default)
     {
         _openApiDoc = openApiDoc;
         _outputDirectory = outputDirectory;
@@ -24,6 +25,11 @@ class ClientGenerator
         if (!string.IsNullOrWhiteSpace(namespaceOverride))
         {
             _namespaceOverride = namespaceOverride;
+        }
+
+        if (!string.IsNullOrWhiteSpace(clientName))
+        {
+            _clientName = clientName;
         }
         
         _baseUrl = baseUrl;
@@ -573,10 +579,11 @@ class ClientGenerator
 
     private string GetClientName()
     {
-        string title = _openApiDoc.Info.Title;
-        title = title.Replace(" ", "").Replace(".", "");
+        if (!string.IsNullOrWhiteSpace(_clientName))
+            return _clientName;
 
-        return $"{ToPascalCase(title)}Client";
+        string title = ToPascalCase(_openApiDoc.Info.Title.Replace(" ", "").Replace(".", ""));
+        return $"{title}Client";
     }
 
     private string GetNamespaceName()

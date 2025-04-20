@@ -7,7 +7,7 @@ namespace BudgetOpenAPICSharpCodeCreator.Commands;
 public class GenerateCommand
 {
     [Command("generate")]
-    public async Task Generate(string InputFile, string OutputDirectory, bool generateProjectFile=true, bool generateClasses=true, bool generateModels=true, string namespaceOverride = default, string baseUrl = "https://localhost")
+    public async Task Generate(string InputFile, string OutputDirectory, bool generateProjectFile=true, bool generateClasses=true, bool generateModels=true, string namespaceOverride = default, string baseUrl = "https://localhost", string clientName = default)
     {
         if (string.IsNullOrWhiteSpace(InputFile))
         {
@@ -51,7 +51,7 @@ public class GenerateCommand
             return;
         }
 
-        var generator = new ClientGenerator(openApiDoc, OutputDirectory, namespaceOverride, baseUrl);
+        var generator = new ClientGenerator(openApiDoc, OutputDirectory, namespaceOverride, baseUrl, clientName);
         await generator.GenerateClient(generateProjectFile, generateClasses, generateModels);
 
         Console.WriteLine($"Client successfully generated in {OutputDirectory}");
