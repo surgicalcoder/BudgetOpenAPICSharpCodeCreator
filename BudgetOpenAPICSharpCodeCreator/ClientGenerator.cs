@@ -276,7 +276,7 @@ class ClientGenerator
         // Header params
         if (operation.Parameters != null)
         {
-            foreach (var param in operation.Parameters.Where(p => p.In == "header" && p.Name != "X-Api-Key"))
+            foreach (var param in operation.Parameters.Where(p => p.In == "header" && p.Name != GetApiKeyName()))
             {
                 var ptype = GetParameterType(param.Schema);
                 var pname = ToCamelCase(param.Name.Replace("-", ""));
@@ -298,11 +298,15 @@ class ClientGenerator
         clientBuilder.AppendLine("        )");
         clientBuilder.AppendLine("        {");
         clientBuilder.AppendLine($"            var requestUri = $\"{routePath}\";");
-        if (HasApiKeyAuth()) clientBuilder.AppendLine("            if (!string.IsNullOrEmpty(_options.ApiKey)) { _httpClient.DefaultRequestHeaders.Add(\"X-Api-Key\", _options.ApiKey); }");
+
+        if (HasApiKeyAuth())
+        {
+            clientBuilder.AppendLine($"            if (!string.IsNullOrEmpty(_options.ApiKey)) {{ _httpClient.DefaultRequestHeaders.Add(\"{GetApiKeyName()}\", _options.ApiKey); }}");
+        }
 
         if (operation.Parameters != null)
         {
-            foreach (var param in operation.Parameters.Where(p => p.In == "header" && p.Name != "X-Api-Key"))
+            foreach (var param in operation.Parameters.Where(p => p.In == "header" && p.Name != GetApiKeyName()))
             {
                 var pname = ToCamelCase(param.Name.Replace("-", ""));
                 clientBuilder.AppendLine($"            if ({pname} != null) _httpClient.DefaultRequestHeaders.Add(\"{param.Name}\", {pname});");
@@ -310,9 +314,15 @@ class ClientGenerator
         }
 
         // HTTP call
-        if (httpMethod == "Get") clientBuilder.AppendLine("            var response = await _httpClient.GetAsync(requestUri);");
-        else if (httpMethod == "Delete") clientBuilder.AppendLine("            var response = await _httpClient.DeleteAsync(requestUri);");
-        else if (httpMethod == "Post" || httpMethod == "Put")
+        if (httpMethod == "Get")
+        {
+            clientBuilder.AppendLine("            var response = await _httpClient.GetAsync(requestUri);");
+        }
+        else if (httpMethod == "Delete")
+        {
+            clientBuilder.AppendLine("            var response = await _httpClient.DeleteAsync(requestUri);");
+        }
+        else if (httpMethod is "Post" or "Put")
         {
             if (operation.RequestBody != null && operation.RequestBody.Content.ContainsKey("multipart/form-data"))
             {
@@ -593,6 +603,19 @@ class ClientGenerator
             : ToPascalCase(_openApiDoc.Info.Title.Replace(" ", "").Replace(".", ""));
     }
 
+    private string? GetApiKeyName()
+    {
+        if (_openApiDoc.Components?.SecuritySchemes == null)
+        {
+            return null;
+        }
+    
+        var apiKeyScheme = _openApiDoc.Components.SecuritySchemes
+            .FirstOrDefault(s => s.Value?.Type == "apiKey");
+    
+        return apiKeyScheme.Key != null ? apiKeyScheme.Value.Name : string.Empty;
+    }
+    
     private bool HasApiKeyAuth()
     {
         return _openApiDoc.Components?.SecuritySchemes != null &&
