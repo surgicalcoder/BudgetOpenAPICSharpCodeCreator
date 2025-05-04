@@ -41,7 +41,7 @@ class ClientGenerator
         }
     }
 
-    public async Task GenerateClient(bool generateModels=true, bool generateClasses=true, bool generateProjectFile= true)
+    public async Task GenerateClient(bool generateModels = true, bool generateClasses = true, bool generateProjectFile = true)
     {
         if (generateModels)
         {
@@ -107,7 +107,7 @@ class ClientGenerator
             if (isIFormFile)
             {
                 // Generate FormFile class
-                modelBuilder.AppendLine($"    public class {className}");
+                modelBuilder.AppendLine($"    public partial class {className}");
                 modelBuilder.AppendLine("    {");
                 modelBuilder.AppendLine("        public Stream FileStream { get; set; }");
                 modelBuilder.AppendLine();
@@ -117,7 +117,7 @@ class ClientGenerator
             }
             else
             {
-                modelBuilder.AppendLine($"    public class {className}");
+                modelBuilder.AppendLine($"    public partial class {className}");
                 modelBuilder.AppendLine("    {");
 
                 // Generate properties for other schemas
@@ -214,7 +214,7 @@ class ClientGenerator
         clientBuilder.AppendLine($"namespace {GetNamespaceName()};");
 
         // Client options class
-        clientBuilder.AppendLine($"    public class {GetClientName()}Options");
+        clientBuilder.AppendLine($"    public partial class {GetClientName()}Options");
         clientBuilder.AppendLine("    {");
         clientBuilder.AppendLine($"        public string BaseUrl {{ get; set; }} = \"{_baseUrl}\";");
 
@@ -227,10 +227,10 @@ class ClientGenerator
         clientBuilder.AppendLine();
 
         // Client class
-        clientBuilder.AppendLine($"    public class {GetClientName()}");
+        clientBuilder.AppendLine($"    public partial class {GetClientName()}");
         clientBuilder.AppendLine("    {");
-        clientBuilder.AppendLine("        private readonly HttpClient _httpClient;");
-        clientBuilder.AppendLine($"        private readonly {GetClientName()}Options _options;");
+        clientBuilder.AppendLine("        public HttpClient _httpClient {get;set;}");
+        clientBuilder.AppendLine($"        public {GetClientName()}Options _options {{get; set;}}");
         clientBuilder.AppendLine();
         clientBuilder.AppendLine($"        public {GetClientName()}({GetClientName()}Options options, HttpClient httpClient)");
         clientBuilder.AppendLine("        {");
