@@ -6,9 +6,9 @@ using Microsoft.CodeAnalysis.CSharp;
 namespace BudgetOpenAPICSharpCodeCreator;
 
 /// <summary>
-/// Generator class to create C# client based on OpenAPI spec
+///     Generator class to create C# client based on OpenAPI spec
 /// </summary>
-class ClientGenerator
+internal class ClientGenerator
 {
     private readonly OpenApiDocument _openApiDoc;
     private readonly string _outputDirectory;
@@ -22,68 +22,46 @@ class ClientGenerator
         _openApiDoc = openApiDoc;
         _outputDirectory = outputDirectory;
 
-        if (!string.IsNullOrWhiteSpace(namespaceOverride))
-        {
-            _namespaceOverride = namespaceOverride;
-        }
+        if (!string.IsNullOrWhiteSpace(namespaceOverride)) _namespaceOverride = namespaceOverride;
 
-        if (!string.IsNullOrWhiteSpace(clientName))
-        {
-            _clientName = clientName;
-        }
-        
+        if (!string.IsNullOrWhiteSpace(clientName)) _clientName = clientName;
+
         _baseUrl = baseUrl;
 
         // Make sure output directory exists
-        if (!Directory.Exists(_outputDirectory))
-        {
-            Directory.CreateDirectory(_outputDirectory);
-        }
+        if (!Directory.Exists(_outputDirectory)) Directory.CreateDirectory(_outputDirectory);
     }
 
     public async Task GenerateClient(bool generateModels = true, bool generateClasses = true, bool generateProjectFile = true)
     {
         if (generateModels)
-        {
             // Step 1: Generate model classes based on schemas
             await GenerateModels();
-        }
 
         if (generateClasses)
-        {
             // Step 2: Generate client class
             await GenerateClientClass();
-        }
-        
+
         if (generateProjectFile)
-        {
             // Step 3: Generate project file
             await GenerateProjectFile();
-        }
     }
 
     public async Task GenerateModels()
     {
-        if (_openApiDoc.Components?.Schemas == null)
-        {
-            return;
-        }
+        if (_openApiDoc.Components?.Schemas == null) return;
 
         foreach (var schema in _openApiDoc.Components.Schemas)
         {
             string className;
-            bool isIFormFile = schema.Key.Equals("IFormFile", StringComparison.OrdinalIgnoreCase);
+            var isIFormFile = schema.Key.Equals("IFormFile", StringComparison.OrdinalIgnoreCase);
 
             // If IFormFile schema, create a FormFile class instead
             if (isIFormFile)
-            {
                 className = "FormFile";
-            }
             else
-            {
                 // Preserve original schema key (no Pascal-casing)
                 className = schema.Key;
-            }
 
             _schemaToClassMapping[$"#/components/schemas/{schema.Key}"] = className;
 
@@ -91,13 +69,9 @@ class ClientGenerator
             modelBuilder.AppendLine("using System;");
 
             if (isIFormFile)
-            {
                 modelBuilder.AppendLine("using System.IO;");
-            }
             else
-            {
                 modelBuilder.AppendLine("using System.Collections.Generic;");
-            }
 
             modelBuilder.AppendLine("using System.Text.Json.Serialization;");
             modelBuilder.AppendLine();
@@ -120,21 +94,16 @@ class ClientGenerator
             {
                 // Generate properties for other schemas
                 if (schema.Value.Properties != null)
-                {
                     foreach (var property in schema.Value.Properties)
                     {
-                        string propertyType = GetPropertyType(property.Value);
+                        var propertyType = GetPropertyType(property.Value);
 
-                        if (propertyType == "IFormFile?")
-                        {
-                            propertyType = "FormFile?";
-                        }
+                        if (propertyType == "IFormFile?") propertyType = "FormFile?";
 
-                        string propertyName = ToPascalCase(property.Key);
+                        var propertyName = ToPascalCase(property.Key);
 
                         modelBuilder.AppendLine($"        [JsonPropertyName(\"{property.Key}\")]\n        public {propertyType} {propertyName} {{ get; set; }}\n");
                     }
-                }
 
                 // Enum placeholder  
                 if (schema.Value is { Type: "integer", Format: null or "int16" or "int32" or "int64" })
@@ -154,15 +123,13 @@ class ClientGenerator
                         eb.AppendLine("/// <summary>");
                         eb.AppendLine($"/// Auto‐generated enum for {schema.Key}");
                         eb.AppendLine("/// </summary>");
-                        eb.AppendLine($"[JsonConverter(typeof(JsonStringEnumConverter))]");
+                        eb.AppendLine("[JsonConverter(typeof(JsonStringEnumConverter))]");
                         eb.AppendLine($"public enum {className}");
                         eb.AppendLine("{");
 
-                        for (int i = 0; i < enumNames.Count; i++)
-                        {
+                        for (var i = 0; i < enumNames.Count; i++)
                             // e.g. Pending = 0,
                             eb.AppendLine($"    {enumNames[i]} = {enumValues[i]},");
-                        }
 
                         //eb.AppendLine("}");
                         modelBuilder.Clear();
@@ -185,11 +152,11 @@ class ClientGenerator
 
             modelBuilder.AppendLine("    }");
 
-            string modelContent = modelBuilder.ToString();
-            string formattedCode = FormatCode(modelContent);
-            string modelsDir = Path.Combine(_outputDirectory, "Models");
+            var modelContent = modelBuilder.ToString();
+            var formattedCode = FormatCode(modelContent);
+            var modelsDir = Path.Combine(_outputDirectory, "Models");
             Directory.CreateDirectory(modelsDir);
-            string modelFilePath = Path.Combine(modelsDir, $"{className}.cs");
+            var modelFilePath = Path.Combine(modelsDir, $"{className}.cs");
             await File.WriteAllTextAsync(modelFilePath, formattedCode);
         }
     }
@@ -215,10 +182,7 @@ class ClientGenerator
         clientBuilder.AppendLine("    {");
         clientBuilder.AppendLine($"        public string BaseUrl {{ get; set; }} = \"{_baseUrl}\";");
 
-        if (HasApiKeyAuth())
-        {
-            clientBuilder.AppendLine("        public string ApiKey { get; set; }");
-        }
+        if (HasApiKeyAuth()) clientBuilder.AppendLine("        public string ApiKey { get; set; }");
 
         clientBuilder.AppendLine("    }");
         clientBuilder.AppendLine();
@@ -239,9 +203,9 @@ class ClientGenerator
 
         GenerateClientMethods(clientBuilder);
         clientBuilder.AppendLine("    }");
-        string clientContent = clientBuilder.ToString();
-        string formattedClient = FormatCode(clientContent);
-        string clientFilePath = Path.Combine(_outputDirectory, $"{GetClientName()}.cs");
+        var clientContent = clientBuilder.ToString();
+        var formattedClient = FormatCode(clientContent);
+        var clientFilePath = Path.Combine(_outputDirectory, $"{GetClientName()}.cs");
         await File.WriteAllTextAsync(clientFilePath, formattedClient);
     }
 
@@ -250,7 +214,7 @@ class ClientGenerator
         foreach (var path in _openApiDoc.Paths)
         {
             var pathItem = path.Value;
-            string routePath = path.Key;
+            var routePath = path.Key;
             if (pathItem.Get != null) GenerateMethod(clientBuilder, "Get", routePath, pathItem.Get);
             if (pathItem.Post != null) GenerateMethod(clientBuilder, "Post", routePath, pathItem.Post);
             if (pathItem.Put != null) GenerateMethod(clientBuilder, "Put", routePath, pathItem.Put);
@@ -260,8 +224,8 @@ class ClientGenerator
 
     private void GenerateMethod(StringBuilder clientBuilder, string httpMethod, string routePath, OperationObject operation)
     {
-        string methodName = GetMethodName(httpMethod, routePath, operation);
-        string returnType = GetResponseType(operation);
+        var methodName = GetMethodName(httpMethod, routePath, operation);
+        var returnType = GetResponseType(operation);
         clientBuilder.AppendLine($"        public async Task{(returnType == "void" ? "" : $"<{returnType}>")} {methodName}(");
         var requiredParams = new List<string>();
         var optionalParams = new List<string>();
@@ -272,7 +236,6 @@ class ClientGenerator
 
         // Header params
         if (operation.Parameters != null)
-        {
             foreach (var param in operation.Parameters.Where(p => p.In == "header" && p.Name != GetApiKeyName()))
             {
                 var ptype = GetParameterType(param.Schema);
@@ -280,7 +243,6 @@ class ClientGenerator
                 if (param.Required) requiredParams.Add($"{ptype} {pname}");
                 else optionalParams.Add($"{ptype} {pname} = null");
             }
-        }
 
         // RequestBody
         if (operation.RequestBody != null)
@@ -296,19 +258,14 @@ class ClientGenerator
         clientBuilder.AppendLine("        {");
         clientBuilder.AppendLine($"            var requestUri = $\"{routePath}\";");
 
-        if (HasApiKeyAuth())
-        {
-            clientBuilder.AppendLine($"            if (!string.IsNullOrEmpty(_options.ApiKey)) {{ _httpClient.DefaultRequestHeaders.Add(\"{GetApiKeyName()}\", _options.ApiKey); }}");
-        }
+        if (HasApiKeyAuth()) clientBuilder.AppendLine($"            if (!string.IsNullOrEmpty(_options.ApiKey)) {{ _httpClient.DefaultRequestHeaders.Add(\"{GetApiKeyName()}\", _options.ApiKey); }}");
 
         if (operation.Parameters != null)
-        {
             foreach (var param in operation.Parameters.Where(p => p.In == "header" && p.Name != GetApiKeyName()))
             {
                 var pname = ToCamelCase(param.Name.Replace("-", ""));
                 clientBuilder.AppendLine($"            if ({pname} != null) _httpClient.DefaultRequestHeaders.Add(\"{param.Name}\", {pname});");
             }
-        }
 
         // HTTP call
         if (httpMethod == "Get")
@@ -322,19 +279,47 @@ class ClientGenerator
         else if (httpMethod is "Post" or "Put")
         {
             if (operation.RequestBody != null && operation.RequestBody.Content.ContainsKey("multipart/form-data"))
+
             {
                 clientBuilder.AppendLine("            using var content = new MultipartFormDataContent();");
-                clientBuilder.AppendLine("            // Add other form fields");
-                clientBuilder.AppendLine("            var requestProps = typeof(" + GetRequestBodyType(operation.RequestBody) + ").GetProperties();");
-                clientBuilder.AppendLine("            foreach (var prop in requestProps) { if (prop.Name.Equals(\"File\", StringComparison.OrdinalIgnoreCase)) continue; var value = prop.GetValue(requestBody); if (value != null) content.Add(new StringContent(value.ToString()), prop.Name); }");
-                clientBuilder.AppendLine();
-                clientBuilder.AppendLine("            // Add file content from FormFile");
-                clientBuilder.AppendLine("            if (requestBody.File != null) { var fileContent = new StreamContent(requestBody.File.FileStream); content.Add(fileContent, \"file\", requestBody.File.FileName); }");
+
+                // Check if the request body is directly a FormFile or has a File property
+                var requestBodyType = GetRequestBodyType(operation.RequestBody);
+                if (requestBodyType == "FormFile")
+                {
+                    // Case 1: requestBody itself is a FormFile
+                    clientBuilder.AppendLine("            // Add file content directly from FormFile");
+                    clientBuilder.AppendLine("            if (requestBody != null) { var fileContent = new StreamContent(requestBody.FileStream); content.Add(fileContent, \"file\", requestBody.FileName); }");
+                }
+                else
+                {
+                    // Case 2: requestBody has properties including possibly a File property
+                    clientBuilder.AppendLine("            // Add form fields");
+                    clientBuilder.AppendLine("            var requestProps = typeof(" + requestBodyType + ").GetProperties();");
+                    clientBuilder.AppendLine("            foreach (var prop in requestProps)");
+                    clientBuilder.AppendLine("            {");
+                    clientBuilder.AppendLine("                var value = prop.GetValue(requestBody);");
+                    clientBuilder.AppendLine("                if (value == null) continue;");
+                    clientBuilder.AppendLine("");
+                    clientBuilder.AppendLine("                // Handle FormFile property");
+                    clientBuilder.AppendLine("                if (prop.PropertyType == typeof(FormFile) || prop.PropertyType == typeof(FormFile?))");
+                    clientBuilder.AppendLine("                {");
+                    clientBuilder.AppendLine("                    var fileValue = value as FormFile;");
+                    clientBuilder.AppendLine("                    if (fileValue?.FileStream != null) { var fileContent = new StreamContent(fileValue.FileStream); content.Add(fileContent, prop.Name.ToLower(), fileValue.FileName); }");
+                    clientBuilder.AppendLine("                    continue;");
+                    clientBuilder.AppendLine("                }");
+                    clientBuilder.AppendLine("");
+                    clientBuilder.AppendLine("                // Handle other property types");
+                    clientBuilder.AppendLine("                content.Add(new StringContent(value.ToString()), prop.Name.ToLower());");
+                    clientBuilder.AppendLine("            }");
+                }
+
                 clientBuilder.AppendLine();
                 clientBuilder.AppendLine(httpMethod == "Post"
                     ? "            var response = await _httpClient.PostAsync(requestUri, content);"
                     : "            var response = await _httpClient.PutAsync(requestUri, content);");
             }
+
             else if (operation.RequestBody != null && operation.RequestBody.Content.ContainsKey("application/json"))
             {
                 clientBuilder.AppendLine(httpMethod == "Post"
@@ -364,19 +349,13 @@ class ClientGenerator
 
     private string GetResponseType(OperationObject operation)
     {
-        if (operation.Responses == null || !operation.Responses.ContainsKey("200"))
-        {
-            return "void";
-        }
+        if (operation.Responses == null || !operation.Responses.ContainsKey("200")) return "void";
 
         var okResponse = operation.Responses["200"];
 
         if (okResponse.Content == null || !okResponse.Content.ContainsKey("application/json"))
         {
-            if (okResponse.Content != null && okResponse.Content.ContainsKey("application/octet-stream"))
-            {
-                return "Stream";
-            }
+            if (okResponse.Content != null && okResponse.Content.ContainsKey("application/octet-stream")) return "Stream";
 
             return "void";
         }
@@ -394,7 +373,8 @@ class ClientGenerator
 
             return GetSchemaType(schema);
         }
-        else if (requestBody.Content.ContainsKey("multipart/form-data"))
+
+        if (requestBody.Content.ContainsKey("multipart/form-data"))
         {
             var schema = requestBody.Content["multipart/form-data"].Schema;
 
@@ -406,33 +386,24 @@ class ClientGenerator
 
     private string GetSchemaType(SchemaObject schema)
     {
-        if (schema == null)
-        {
-            return "object";
-        }
+        if (schema == null) return "object";
 
-        if (schema.Properties is { Count: > 0 } && schema.Properties.Any(e=>e.Value?.Reference == "#/components/schemas/IFormFile"))
-        {
-            return "FormFile";
-        }
-        
+        if (schema.Properties is { Count: > 0 } && schema.Properties.Any(e => e.Value?.Reference == "#/components/schemas/IFormFile")) return "FormFile";
+
         if (!string.IsNullOrEmpty(schema.Reference))
         {
-            if (_schemaToClassMapping.TryGetValue(schema.Reference, out string className))
-            {
-                return className;
-            }
+            if (_schemaToClassMapping.TryGetValue(schema.Reference, out var className)) return className;
 
             // Extract class name from reference
-            string refPath = schema.Reference;
-            string schemaName = refPath.Split('/').Last();
+            var refPath = schema.Reference;
+            var schemaName = refPath.Split('/').Last();
 
             return ToPascalCase(schemaName);
         }
 
         if (schema.Type == "array")
         {
-            string itemType = GetSchemaType(schema.Items);
+            var itemType = GetSchemaType(schema.Items);
 
             return $"List<{itemType}>";
         }
@@ -466,29 +437,20 @@ class ClientGenerator
 
     private string GetParameterType(SchemaObject schema)
     {
-        if (schema == null)
-        {
-            return "string";
-        }
+        if (schema == null) return "string";
 
         return GetSchemaType(schema);
     }
 
     private string GetPropertyType(SchemaObject schema)
     {
-        string type = GetSchemaType(schema);
+        var type = GetSchemaType(schema);
 
         // Make properties nullable for reference types if not required
-        if (!IsPrimitiveType(type) && type != "string" && !type.StartsWith("List<"))
-        {
-            return $"{type}?";
-        }
+        if (!IsPrimitiveType(type) && type != "string" && !type.StartsWith("List<")) return $"{type}?";
 
         // For value types that should be nullable
-        if (IsPrimitiveType(type) && type != "string")
-        {
-            return $"{type}?";
-        }
+        if (IsPrimitiveType(type) && type != "string") return $"{type}?";
 
         return type;
     }
@@ -511,16 +473,13 @@ class ClientGenerator
 
     private string GetMethodName(string httpMethod, string routePath, OperationObject operation)
     {
-        if (!string.IsNullOrEmpty(operation.OperationId))
-        {
-            return ToPascalCase(operation.OperationId.Replace(" ", "_"));
-        }
+        if (!string.IsNullOrEmpty(operation.OperationId)) return ToPascalCase(operation.OperationId.Replace(" ", "_"));
 
         // Extract method name from the path
-        string path = routePath.TrimStart('/');
+        var path = routePath.TrimStart('/');
 
         // Split the path and get meaningful parts
-        string[] segments = path.Split('/', StringSplitOptions.RemoveEmptyEntries);
+        var segments = path.Split('/', StringSplitOptions.RemoveEmptyEntries);
 
         if (segments.Length > 0)
         {
@@ -528,22 +487,18 @@ class ClientGenerator
             string nameSegment = null;
 
             // First try to use the API endpoint name (like "Status", "DeleteFiles", etc.)
-            for (int i = segments.Length - 1; i >= 0; i--)
-            {
+            for (var i = segments.Length - 1; i >= 0; i--)
                 if (!segments[i].StartsWith("{"))
                 {
                     nameSegment = segments[i];
 
                     break;
                 }
-            }
 
             // If we found a usable segment
             if (!string.IsNullOrEmpty(nameSegment))
-            {
                 // For paths like /api/Status/{id}, just use "Status"
                 return ToPascalCase(nameSegment);
-            }
         }
 
         // Default case - use HTTP method + API
@@ -552,16 +507,10 @@ class ClientGenerator
 
     private string ToPascalCase(string input)
     {
-        if (string.IsNullOrEmpty(input))
-        {
-            return input;
-        }
+        if (string.IsNullOrEmpty(input)) return input;
 
         // Handle references like #/components/schemas/ClassName
-        if (input.Contains("/"))
-        {
-            input = input.Split('/').Last();
-        }
+        if (input.Contains("/")) input = input.Split('/').Last();
 
         // Handle snake_case or kebab-case
         if (input.Contains("_") || input.Contains("-"))
@@ -579,12 +528,9 @@ class ClientGenerator
 
     private string ToCamelCase(string input)
     {
-        if (string.IsNullOrEmpty(input))
-        {
-            return input;
-        }
+        if (string.IsNullOrEmpty(input)) return input;
 
-        string pascalCase = ToPascalCase(input);
+        var pascalCase = ToPascalCase(input);
 
         return $"{char.ToLower(pascalCase[0])}{pascalCase[1..]}";
     }
@@ -594,30 +540,27 @@ class ClientGenerator
         if (!string.IsNullOrWhiteSpace(_clientName))
             return _clientName;
 
-        string title = ToPascalCase(_openApiDoc.Info.Title.Replace(" ", "").Replace(".", ""));
+        var title = ToPascalCase(_openApiDoc.Info.Title.Replace(" ", "").Replace(".", ""));
         return $"{title}Client";
     }
 
     private string GetNamespaceName()
     {
-        return !string.IsNullOrWhiteSpace(_namespaceOverride) 
-            ? _namespaceOverride 
+        return !string.IsNullOrWhiteSpace(_namespaceOverride)
+            ? _namespaceOverride
             : ToPascalCase(_openApiDoc.Info.Title.Replace(" ", "").Replace(".", ""));
     }
 
     private string? GetApiKeyName()
     {
-        if (_openApiDoc.Components?.SecuritySchemes == null)
-        {
-            return null;
-        }
-    
+        if (_openApiDoc.Components?.SecuritySchemes == null) return null;
+
         var apiKeyScheme = _openApiDoc.Components.SecuritySchemes
             .FirstOrDefault(s => s.Value?.Type == "apiKey");
-    
+
         return apiKeyScheme.Key != null ? apiKeyScheme.Value.Name : string.Empty;
     }
-    
+
     private bool HasApiKeyAuth()
     {
         return _openApiDoc.Components?.SecuritySchemes != null &&
@@ -666,7 +609,7 @@ class ClientGenerator
         projectFileBuilder.AppendLine();
         projectFileBuilder.AppendLine("</Project>");
 
-        string projectFilePath = Path.Combine(_outputDirectory, $"{GetNamespaceName()}.csproj");
+        var projectFilePath = Path.Combine(_outputDirectory, $"{GetNamespaceName()}.csproj");
         await File.WriteAllTextAsync(projectFilePath, projectFileBuilder.ToString());
     }
 }
