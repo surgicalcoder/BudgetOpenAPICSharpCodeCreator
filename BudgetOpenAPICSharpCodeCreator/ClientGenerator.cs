@@ -1,4 +1,4 @@
-﻿using System.Text;
+using System.Text;
 using BudgetOpenAPICSharpCodeCreator.Model;
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp;
@@ -104,22 +104,20 @@ class ClientGenerator
             modelBuilder.AppendLine($"namespace {GetNamespaceName()}.Models;");
             modelBuilder.AppendLine();
 
+            modelBuilder.AppendLine($"    public partial class {className}");
+
+            modelBuilder.AppendLine("    {");
+
             if (isIFormFile)
             {
                 // Generate FormFile class
-                modelBuilder.AppendLine($"    public partial class {className}");
-                modelBuilder.AppendLine("    {");
                 modelBuilder.AppendLine("        public Stream FileStream { get; set; }");
                 modelBuilder.AppendLine();
                 modelBuilder.AppendLine("        public string FileName { get; set; }");
-                modelBuilder.AppendLine("    }");
                 // modelBuilder.AppendLine("}");
             }
             else
             {
-                modelBuilder.AppendLine($"    public partial class {className}");
-                modelBuilder.AppendLine("    {");
-
                 // Generate properties for other schemas
                 if (schema.Value.Properties != null)
                 {
@@ -183,10 +181,9 @@ class ClientGenerator
                         modelBuilder.Append(enumBuilder.ToString());
                     }
                 }
-
-                modelBuilder.AppendLine("    }");
-                // modelBuilder.AppendLine("}");
             }
+
+            modelBuilder.AppendLine("    }");
 
             string modelContent = modelBuilder.ToString();
             string formattedCode = FormatCode(modelContent);
@@ -414,6 +411,11 @@ class ClientGenerator
             return "object";
         }
 
+        if (schema.Properties is { Count: > 0 } && schema.Properties.Any(e=>e.Value?.Reference == "#/components/schemas/IFormFile"))
+        {
+            return "FormFile";
+        }
+        
         if (!string.IsNullOrEmpty(schema.Reference))
         {
             if (_schemaToClassMapping.TryGetValue(schema.Reference, out string className))
