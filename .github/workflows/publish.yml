@@ -70,10 +70,10 @@ jobs:
         echo "FullSemVer: ${{ steps.gitversion.outputs.fullSemVer }}"
         
     - name: Restore dependencies
-      run: dotnet restore BudgetOpenAPICSharpCodeCreator/BudgetOpenAPICSharpCodeCreator.sln 
+      run: dotnet restore BudgetOpenAPICSharpCodeCreator/BudgetOpenAPICSharpCodeCreator.sln --runtime win-x64
       
     - name: Build project
-      run: dotnet build BudgetOpenAPICSharpCodeCreator/BudgetOpenAPICSharpCodeCreator.sln --configuration Release --no-restore
+      run: dotnet build BudgetOpenAPICSharpCodeCreator/BudgetOpenAPICSharpCodeCreator.sln --configuration Release --no-restore --runtime win-x64
       
     - name: Publish project (Windows x64, single file)
       run: dotnet publish BudgetOpenAPICSharpCodeCreator/BudgetOpenAPICSharpCodeCreator.sln --configuration Release --no-build --output ./publish --runtime win-x64 --self-contained true /p:PublishSingleFile=true /p:PublishTrimmed=false
