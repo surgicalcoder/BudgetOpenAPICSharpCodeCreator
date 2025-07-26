@@ -12,7 +12,7 @@ permissions:
 
 jobs:
   build-and-release:
-    runs-on: ubuntu-latest
+    runs-on: windows-latest
     
     steps:
     - name: Checkout code
@@ -93,15 +93,8 @@ jobs:
         echo "- Build date: $(date)" >> $GITHUB_OUTPUT
         echo "- Version: ${{ steps.gitversion.outputs.fullSemVer }}" >> $GITHUB_OUTPUT
         echo "" >> $GITHUB_OUTPUT
-        echo "### Version Bumping" >> $GITHUB_OUTPUT
-        echo "To control version increments, use these patterns in commit messages:" >> $GITHUB_OUTPUT
-        echo "- \`+semver: major\` or \`+semver: breaking\` - Major version bump" >> $GITHUB_OUTPUT
-        echo "- \`+semver: minor\` or \`+semver: feature\` - Minor version bump" >> $GITHUB_OUTPUT
-        echo "- \`+semver: patch\` or \`+semver: fix\` - Patch version bump (default)" >> $GITHUB_OUTPUT
-        echo "- \`+semver: none\` or \`+semver: skip\` - No version bump" >> $GITHUB_OUTPUT
         echo "" >> $GITHUB_OUTPUT
         echo "### Files" >> $GITHUB_OUTPUT
-        echo "- \`BudgetOpenAPICSharpCodeCreator-${{ steps.gitversion.outputs.semVer }}.tar.gz\` - Linux/macOS archive" >> $GITHUB_OUTPUT
         echo "- \`BudgetOpenAPICSharpCodeCreator-${{ steps.gitversion.outputs.semVer }}.zip\` - Windows archive" >> $GITHUB_OUTPUT
         echo "EOF" >> $GITHUB_OUTPUT
         
