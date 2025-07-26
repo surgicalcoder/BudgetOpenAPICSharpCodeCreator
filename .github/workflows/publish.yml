@@ -4,9 +4,6 @@
 name: Build and Release
 
 on:
-  push:
-    tags:
-      - 'v*'  # Triggers on version tags like v1.0.0
   workflow_dispatch:  # Allows manual triggering
 
 jobs:
@@ -17,30 +14,62 @@ jobs:
     - name: Checkout code
       uses: actions/checkout@v4
       with:
-        fetch-depth: 0  # Required for GitVersion
+        fetch-depth: 0  # Fetch full history for GitVersion
       
+    - name: Setup .NET
+      uses: actions/setup-dotnet@v4
+      with:
+        dotnet-version: '9.0.x'  # Adjust version as needed
+        
     - name: Install GitVersion
       uses: gittools/actions/gitversion/setup@v0.10.2
       with:
         versionSpec: '5.x'
         
+    - name: Create GitVersion config
+      run: |
+        cat > gitversion.yml << 'EOF'
+        mode: ContinuousDelivery
+        branches:
+          main:
+            increment: Patch
+          master:
+            increment: Patch
+          develop:
+            increment: Patch
+          feature:
+            increment: Patch
+          hotfix:
+            increment: Patch
+          release:
+            increment: Patch
+        major-version-bump-message: '\+semver:\s?(breaking|major)'
+        minor-version-bump-message: '\+semver:\s?(feature|minor)'
+        patch-version-bump-message: '\+semver:\s?(fix|patch)'
+        no-bump-message: '\+semver:\s?(none|skip)'
+        legacy-semver-padding: 4
+        build-metadata-padding: 4
+        commits-since-version-source-padding: 4
+        commit-message-incrementing: Enabled
+        EOF
+        
     - name: Determine Version
       id: gitversion
       uses: gittools/actions/gitversion/execute@v0.10.2
-      with:
-        useConfigFile: true
-        configFilePath: gitversion.yml
-        
-    - name: Setup .NET
-      uses: actions/setup-dotnet@v4
-      with:
-        dotnet-version: '8.0.x'  # Adjust version as needed
+      
+    - name: Display GitVersion outputs
+      run: |
+        echo "Major: ${{ steps.gitversion.outputs.major }}"
+        echo "Minor: ${{ steps.gitversion.outputs.minor }}"
+        echo "Patch: ${{ steps.gitversion.outputs.patch }}"
+        echo "SemVer: ${{ steps.gitversion.outputs.semVer }}"
+        echo "FullSemVer: ${{ steps.gitversion.outputs.fullSemVer }}"
         
     - name: Restore dependencies
       run: dotnet restore
       
     - name: Build project
-      run: dotnet build --configuration Release --no-restore -p:Version=${{ steps.gitversion.outputs.assemblySemVer }} -p:AssemblyVersion=${{ steps.gitversion.outputs.assemblySemVer }} -p:FileVersion=${{ steps.gitversion.outputs.assemblySemFileVer }}
+      run: dotnet build --configuration Release --no-restore
       
     - name: Run tests (if any)
       run: dotnet test --configuration Release --no-build --verbosity normal
@@ -62,14 +91,17 @@ jobs:
         echo "RELEASE_NOTES<<EOF" >> $GITHUB_OUTPUT
         echo "## Release v${{ steps.gitversion.outputs.semVer }}" >> $GITHUB_OUTPUT
         echo "" >> $GITHUB_OUTPUT
-        echo "### Version Information" >> $GITHUB_OUTPUT
-        echo "- Version: ${{ steps.gitversion.outputs.semVer }}" >> $GITHUB_OUTPUT
-        echo "- Assembly Version: ${{ steps.gitversion.outputs.assemblySemVer }}" >> $GITHUB_OUTPUT
-        echo "- Informational Version: ${{ steps.gitversion.outputs.informationalVersion }}" >> $GITHUB_OUTPUT
-        echo "" >> $GITHUB_OUTPUT
         echo "### Changes" >> $GITHUB_OUTPUT
         echo "- Built from commit: ${{ github.sha }}" >> $GITHUB_OUTPUT
         echo "- Build date: $(date)" >> $GITHUB_OUTPUT
+        echo "- Version: ${{ steps.gitversion.outputs.fullSemVer }}" >> $GITHUB_OUTPUT
+        echo "" >> $GITHUB_OUTPUT
+        echo "### Version Bumping" >> $GITHUB_OUTPUT
+        echo "To control version increments, use these patterns in commit messages:" >> $GITHUB_OUTPUT
+        echo "- \`+semver: major\` or \`+semver: breaking\` - Major version bump" >> $GITHUB_OUTPUT
+        echo "- \`+semver: minor\` or \`+semver: feature\` - Minor version bump" >> $GITHUB_OUTPUT
+        echo "- \`+semver: patch\` or \`+semver: fix\` - Patch version bump (default)" >> $GITHUB_OUTPUT
+        echo "- \`+semver: none\` or \`+semver: skip\` - No version bump" >> $GITHUB_OUTPUT
         echo "" >> $GITHUB_OUTPUT
         echo "### Files" >> $GITHUB_OUTPUT
         echo "- \`BudgetOpenAPICSharpCodeCreator-${{ steps.gitversion.outputs.semVer }}.tar.gz\` - Linux/macOS archive" >> $GITHUB_OUTPUT
@@ -83,7 +115,7 @@ jobs:
         name: Release v${{ steps.gitversion.outputs.semVer }}
         body: ${{ steps.release_notes.outputs.RELEASE_NOTES }}
         draft: false
-        prerelease: ${{ steps.gitversion.outputs.preReleaseTag != '' }}
+        prerelease: false
         files: |
           BudgetOpenAPICSharpCodeCreator-${{ steps.gitversion.outputs.semVer }}.tar.gz
           BudgetOpenAPICSharpCodeCreator-${{ steps.gitversion.outputs.semVer }}.zip
