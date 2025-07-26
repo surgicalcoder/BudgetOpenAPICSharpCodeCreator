@@ -12,7 +12,7 @@ permissions:
 
 jobs:
   build-and-release:
-    runs-on: windows-latest
+    runs-on: ubuntu-latest
     
     steps:
     - name: Checkout code
@@ -75,8 +75,8 @@ jobs:
     - name: Build project
       run: dotnet build BudgetOpenAPICSharpCodeCreator/BudgetOpenAPICSharpCodeCreator.sln --configuration Release --no-restore
       
-    - name: Publish project
-      run: dotnet publish BudgetOpenAPICSharpCodeCreator/BudgetOpenAPICSharpCodeCreator.sln --configuration Release --no-build --output ./publish
+    - name: Publish project (Windows x64, single file)
+      run: dotnet publish BudgetOpenAPICSharpCodeCreator/BudgetOpenAPICSharpCodeCreator.sln --configuration Release --no-build --output ./publish --runtime win-x64 --self-contained true /p:PublishSingleFile=true /p:PublishTrimmed=false
 
     - name: Create release archive
       run: |
