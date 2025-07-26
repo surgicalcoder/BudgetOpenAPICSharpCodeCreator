@@ -6,6 +6,10 @@ name: Build and Release
 on:
   workflow_dispatch:  # Allows manual triggering
 
+permissions:
+  contents: write  # Required for creating releases and uploading assets
+  packages: read   # Required for accessing packages if needed
+
 jobs:
   build-and-release:
     runs-on: ubuntu-latest
@@ -110,7 +114,6 @@ jobs:
         draft: false
         prerelease: false
         files: |
-          BudgetOpenAPICSharpCodeCreator-${{ steps.gitversion.outputs.semVer }}.tar.gz
           BudgetOpenAPICSharpCodeCreator-${{ steps.gitversion.outputs.semVer }}.zip
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
