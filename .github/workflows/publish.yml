@@ -69,20 +69,13 @@ jobs:
       run: dotnet restore
       
     - name: Build project
-      run: dotnet build --configuration Release --no-restore
-      
-    - name: Run tests (if any)
-      run: dotnet test --configuration Release --no-build --verbosity normal
-      continue-on-error: true  # Continue even if tests fail
+      run: dotnet build BudgetOpenAPICSharpCodeCreator/BudgetOpenAPICSharpCodeCreator.sln --configuration Release --no-restore
       
     - name: Publish project
-      run: dotnet publish --configuration Release --no-build --output ./publish
-      
+      run: dotnet publish BudgetOpenAPICSharpCodeCreator/BudgetOpenAPICSharpCodeCreator.sln --configuration Release --no-build --output ./publish
+
     - name: Create release archive
       run: |
-        cd publish
-        tar -czf ../BudgetOpenAPICSharpCodeCreator-${{ steps.gitversion.outputs.semVer }}.tar.gz *
-        cd ..
         zip -r BudgetOpenAPICSharpCodeCreator-${{ steps.gitversion.outputs.semVer }}.zip publish/
         
     - name: Generate release notes
