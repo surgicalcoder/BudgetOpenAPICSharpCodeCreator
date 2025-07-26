@@ -66,7 +66,7 @@ jobs:
         echo "FullSemVer: ${{ steps.gitversion.outputs.fullSemVer }}"
         
     - name: Restore dependencies
-      run: dotnet restore
+      run: dotnet restore BudgetOpenAPICSharpCodeCreator/BudgetOpenAPICSharpCodeCreator.sln 
       
     - name: Build project
       run: dotnet build BudgetOpenAPICSharpCodeCreator/BudgetOpenAPICSharpCodeCreator.sln --configuration Release --no-restore
