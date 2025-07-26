@@ -1,0 +1,271 @@
+name: Build and Release
+
+on:
+  workflow_dispatch:  # Allows manual triggering
+
+jobs:
+  auto-version-build-release:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      with:
+        fetch-depth: 0  # Fetch full history for conventional commits analysis
+        token: ${{ secrets.GITHUB_TOKEN }}
+        
+    - name: Setup .NET
+      uses: actions/setup-dotnet@v4
+      with:
+        dotnet-version: '9.0.x'
+        
+    - name: Install GitVersion
+      uses: gittools/actions/gitversion/setup@v0.10.2
+      with:
+        versionSpec: '5.x'
+        
+    - name: Determine Version
+      id: gitversion
+      uses: gittools/actions/gitversion/execute@v0.10.2
+      with:
+        useConfigFile: true
+        configFilePath: GitVersion.yml
+        
+    - name: Create GitVersion config
+      run: |
+        cat > GitVersion.yml << EOF
+        mode: Mainline
+        branches:
+          main:
+            regex: ^main$
+            increment: Patch
+            prevent-increment-of-merged-branch-version: true
+            track-merge-target: false
+            source-branches: ['develop', 'feature']
+        commit-message-incrementing:
+          enabled: true
+          increment-mode: InheritFromParent
+          major-pattern: '\+semver:\s?(breaking|major)'
+          minor-pattern: '\+semver:\s?(feature|minor)'
+          patch-pattern: '\+semver:\s?(fix|patch)'
+          no-bump-pattern: '\+semver:\s?(none|skip)'
+        EOF
+        
+    - name: Analyze Conventional Commits
+      id: conventional_commits
+      run: |
+        # Get commits since last tag
+        LAST_TAG=$(git describe --tags --abbrev=0 2>/dev/null || echo "")
+        if [ -z "$LAST_TAG" ]; then
+          COMMITS=$(git log --pretty=format:"%s" --no-merges)
+        else
+          COMMITS=$(git log ${LAST_TAG}..HEAD --pretty=format:"%s" --no-merges)
+        fi
+        
+        # Analyze commit messages for conventional commits
+        MAJOR_BUMP=false
+        MINOR_BUMP=false
+        PATCH_BUMP=false
+        
+        while IFS= read -r commit; do
+          if [[ $commit =~ ^(feat|feature)(\(.+\))?!: ]] || [[ $commit =~ BREAKING\ CHANGE ]]; then
+            MAJOR_BUMP=true
+          elif [[ $commit =~ ^feat(\(.+\))?: ]]; then
+            MINOR_BUMP=true
+          elif [[ $commit =~ ^(fix|bugfix|patch)(\(.+\))?: ]]; then
+            PATCH_BUMP=true
+          fi
+        done <<< "$COMMITS"
+        
+        # Determine version bump
+        if [ "$MAJOR_BUMP" = true ]; then
+          echo "VERSION_BUMP=major" >> $GITHUB_OUTPUT
+        elif [ "$MINOR_BUMP" = true ]; then
+          echo "VERSION_BUMP=minor" >> $GITHUB_OUTPUT
+        elif [ "$PATCH_BUMP" = true ]; then
+          echo "VERSION_BUMP=patch" >> $GITHUB_OUTPUT
+        else
+          echo "VERSION_BUMP=none" >> $GITHUB_OUTPUT
+        fi
+        
+    - name: Bump version and create tag
+      id: tag_version
+      if: steps.conventional_commits.outputs.VERSION_BUMP != 'none'
+      uses: mathieudutour/github-tag-action@v6.1
+      with:
+        github_token: ${{ secrets.GITHUB_TOKEN }}
+        default_bump: ${{ steps.conventional_commits.outputs.VERSION_BUMP }}
+        tag_prefix: v
+        
+    - name: Skip if no version bump needed
+      if: steps.conventional_commits.outputs.VERSION_BUMP == 'none'
+      run: |
+        echo "No version bump needed based on conventional commits. Skipping release."
+        exit 0
+        
+    - name: Restore dependencies
+      if: steps.conventional_commits.outputs.VERSION_BUMP != 'none'
+      run: dotnet restore
+      
+    - name: Build project
+      if: steps.conventional_commits.outputs.VERSION_BUMP != 'none'
+      run: dotnet build --configuration Release --no-restore
+      
+    - name: Run tests
+      if: steps.conventional_commits.outputs.VERSION_BUMP != 'none'
+      run: dotnet test --configuration Release --no-build --verbosity normal --logger trx --results-directory TestResults
+      
+    - name: Publish Test Results
+      if: always() && steps.conventional_commits.outputs.VERSION_BUMP != 'none'
+      uses: dorny/test-reporter@v1
+      with:
+        name: .NET Tests
+        path: TestResults/*.trx
+        reporter: dotnet-trx
+        
+    - name: Build for multiple platforms
+      if: steps.conventional_commits.outputs.VERSION_BUMP != 'none'
+      run: |
+        # Create output directory
+        mkdir -p releases
+        
+        # Build for Windows x64
+        dotnet publish --configuration Release --runtime win-x64 --self-contained true --output ./releases/win-x64 -p:PublishSingleFile=true -p:PublishTrimmed=true
+        
+        # Build for Linux x64
+        dotnet publish --configuration Release --runtime linux-x64 --self-contained true --output ./releases/linux-x64 -p:PublishSingleFile=true -p:PublishTrimmed=true
+        
+        # Build for macOS x64
+        dotnet publish --configuration Release --runtime osx-x64 --self-contained true --output ./releases/osx-x64 -p:PublishSingleFile=true -p:PublishTrimmed=true
+        
+        # Build for macOS ARM64 (Apple Silicon)
+        dotnet publish --configuration Release --runtime osx-arm64 --self-contained true --output ./releases/osx-arm64 -p:PublishSingleFile=true -p:PublishTrimmed=true
+        
+    - name: Create release archives
+      if: steps.conventional_commits.outputs.VERSION_BUMP != 'none'
+      run: |
+        VERSION=${{ steps.tag_version.outputs.new_tag }}
+        
+        # Create Windows archive
+        cd releases/win-x64
+        zip -r ../../BudgetOpenAPICSharpCodeCreator-${VERSION}-win-x64.zip *
+        cd ../..
+        
+        # Create Linux archive
+        cd releases/linux-x64
+        tar -czf ../../BudgetOpenAPICSharpCodeCreator-${VERSION}-linux-x64.tar.gz *
+        cd ../..
+        
+        # Create macOS x64 archive
+        cd releases/osx-x64
+        tar -czf ../../BudgetOpenAPICSharpCodeCreator-${VERSION}-osx-x64.tar.gz *
+        cd ../..
+        
+        # Create macOS ARM64 archive
+        cd releases/osx-arm64
+        tar -czf ../../BudgetOpenAPICSharpCodeCreator-${VERSION}-osx-arm64.tar.gz *
+        cd ../..
+        
+    - name: Generate changelog
+      if: steps.conventional_commits.outputs.VERSION_BUMP != 'none'
+      id: changelog
+      run: |
+        VERSION=${{ steps.tag_version.outputs.new_tag }}
+        PREV_TAG=${{ steps.tag_version.outputs.previous_tag }}
+        
+        echo "CHANGELOG<<EOF" >> $GITHUB_OUTPUT
+        echo "## Release ${VERSION}" >> $GITHUB_OUTPUT
+        echo "" >> $GITHUB_OUTPUT
+        echo "**Release Date:** $(date -u +"%Y-%m-%d %H:%M:%S UTC")" >> $GITHUB_OUTPUT
+        echo "**Commit:** ${{ github.sha }}" >> $GITHUB_OUTPUT
+        echo "" >> $GITHUB_OUTPUT
+        
+        if [ -n "$PREV_TAG" ]; then
+          echo "### Changes since ${PREV_TAG}" >> $GITHUB_OUTPUT
+          echo "" >> $GITHUB_OUTPUT
+          
+          # Get commits and categorize them
+          git log ${PREV_TAG}..HEAD --pretty=format:"- %s (%h)" --no-merges | while IFS= read -r line; do
+            if [[ $line =~ ^-\ feat(\(.+\))?!: ]] || [[ $line =~ BREAKING\ CHANGE ]]; then
+              echo "#### 💥 Breaking Changes" >> $GITHUB_OUTPUT
+              echo "$line" >> $GITHUB_OUTPUT
+            elif [[ $line =~ ^-\ feat(\(.+\))?: ]]; then
+              echo "#### ✨ Features" >> $GITHUB_OUTPUT
+              echo "$line" >> $GITHUB_OUTPUT
+            elif [[ $line =~ ^-\ (fix|bugfix)(\(.+\))?: ]]; then
+              echo "#### 🐛 Bug Fixes" >> $GITHUB_OUTPUT
+              echo "$line" >> $GITHUB_OUTPUT
+            elif [[ $line =~ ^-\ docs(\(.+\))?: ]]; then
+              echo "#### 📚 Documentation" >> $GITHUB_OUTPUT
+              echo "$line" >> $GITHUB_OUTPUT
+            elif [[ $line =~ ^-\ (style|refactor)(\(.+\))?: ]]; then
+              echo "#### 🔧 Code Improvements" >> $GITHUB_OUTPUT
+              echo "$line" >> $GITHUB_OUTPUT
+            elif [[ $line =~ ^-\ test(\(.+\))?: ]]; then
+              echo "#### 🧪 Tests" >> $GITHUB_OUTPUT
+              echo "$line" >> $GITHUB_OUTPUT
+            else
+              echo "#### 📦 Other Changes" >> $GITHUB_OUTPUT
+              echo "$line" >> $GITHUB_OUTPUT
+            fi
+          done
+        else
+          echo "### Initial Release" >> $GITHUB_OUTPUT
+          echo "This is the first release of BudgetOpenAPICSharpCodeCreator." >> $GITHUB_OUTPUT
+        fi
+        
+        echo "" >> $GITHUB_OUTPUT
+        echo "### 📦 Downloads" >> $GITHUB_OUTPUT
+        echo "" >> $GITHUB_OUTPUT
+        echo "| Platform | Architecture | Download |" >> $GITHUB_OUTPUT
+        echo "|----------|--------------|----------|" >> $GITHUB_OUTPUT
+        echo "| Windows | x64 | \`BudgetOpenAPICSharpCodeCreator-${VERSION}-win-x64.zip\` |" >> $GITHUB_OUTPUT
+        echo "| Linux | x64 | \`BudgetOpenAPICSharpCodeCreator-${VERSION}-linux-x64.tar.gz\` |" >> $GITHUB_OUTPUT
+        echo "| macOS | x64 (Intel) | \`BudgetOpenAPICSharpCodeCreator-${VERSION}-osx-x64.tar.gz\` |" >> $GITHUB_OUTPUT
+        echo "| macOS | ARM64 (Apple Silicon) | \`BudgetOpenAPICSharpCodeCreator-${VERSION}-osx-arm64.tar.gz\` |" >> $GITHUB_OUTPUT
+        echo "" >> $GITHUB_OUTPUT
+        echo "### 🚀 Installation" >> $GITHUB_OUTPUT
+        echo "" >> $GITHUB_OUTPUT
+        echo "1. Download the appropriate archive for your platform" >> $GITHUB_OUTPUT
+        echo "2. Extract the archive" >> $GITHUB_OUTPUT
+        echo "3. Run the executable from the command line" >> $GITHUB_OUTPUT
+        echo "" >> $GITHUB_OUTPUT
+        echo "### 📋 Requirements" >> $GITHUB_OUTPUT
+        echo "" >> $GITHUB_OUTPUT
+        echo "- No additional runtime required (self-contained deployment)" >> $GITHUB_OUTPUT
+        echo "EOF" >> $GITHUB_OUTPUT
+        
+    - name: Create GitHub Release
+      if: steps.conventional_commits.outputs.VERSION_BUMP != 'none'
+      uses: softprops/action-gh-release@v1
+      with:
+        tag_name: ${{ steps.tag_version.outputs.new_tag }}
+        name: Release ${{ steps.tag_version.outputs.new_tag }}
+        body: ${{ steps.changelog.outputs.CHANGELOG }}
+        draft: false
+        prerelease: false
+        files: |
+          BudgetOpenAPICSharpCodeCreator-${{ steps.tag_version.outputs.new_tag }}-win-x64.zip
+          BudgetOpenAPICSharpCodeCreator-${{ steps.tag_version.outputs.new_tag }}-linux-x64.tar.gz
+          BudgetOpenAPICSharpCodeCreator-${{ steps.tag_version.outputs.new_tag }}-osx-x64.tar.gz
+          BudgetOpenAPICSharpCodeCreator-${{ steps.tag_version.outputs.new_tag }}-osx-arm64.tar.gz
+        generate_release_notes: false
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        
+    - name: Update release summary
+      if: steps.conventional_commits.outputs.VERSION_BUMP != 'none'
+      run: |
+        echo "## 🎉 Release Created Successfully!" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "**Version:** ${{ steps.tag_version.outputs.new_tag }}" >> $GITHUB_STEP_SUMMARY
+        echo "**Previous Version:** ${{ steps.tag_version.outputs.previous_tag }}" >> $GITHUB_STEP_SUMMARY
+        echo "**Version Bump:** ${{ steps.conventional_commits.outputs.VERSION_BUMP }}" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "### 📦 Built Artifacts:" >> $GITHUB_STEP_SUMMARY
+        echo "- Windows x64 (self-contained)" >> $GITHUB_STEP_SUMMARY
+        echo "- Linux x64 (self-contained)" >> $GITHUB_STEP_SUMMARY
+        echo "- macOS x64 Intel (self-contained)" >> $GITHUB_STEP_SUMMARY
+        echo "- macOS ARM64 Apple Silicon (self-contained)" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "🔗 [View Release](https://github.com/${{ github.repository }}/releases/tag/${{ steps.tag_version.outputs.new_tag }})" >> $GITHUB_STEP_SUMMARY
