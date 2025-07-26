@@ -1,0 +1,82 @@
+# GitVersion.yml - Compatible with GitVersion 5.x and YamlDotNet
+# Save this as GitVersion.yml in the repository root
+
+mode: ContinuousDelivery
+next-version: 1.0.0
+assembly-versioning-scheme: MajorMinorPatch
+assembly-file-versioning-scheme: MajorMinorPatchTag
+assembly-informational-format: '{InformationalVersion}'
+tag-prefix: 'v'
+continuous-delivery-fallback-tag: 'ci'
+major-version-bump-message: '\+semver:\s?(breaking|major)'
+minor-version-bump-message: '\+semver:\s?(feature|minor)'
+patch-version-bump-message: '\+semver:\s?(fix|patch)'
+no-bump-message: '\+semver:\s?(none|skip)'
+legacy-semver-padding: 4
+build-metadata-padding: 4
+commits-since-version-source-padding: 4
+commit-message-incrementing:
+  major-pattern: '(?i)\+semver:\s?(breaking|major)'
+  minor-pattern: '(?i)\+semver:\s?(feature|minor)'
+  patch-pattern: '(?i)\+semver:\s?(fix|patch)'
+  none-pattern: '(?i)\+semver:\s?(none|skip)'
+branches:
+  main:
+    regex: '^master$|^main$'
+    mode: ContinuousDelivery
+    tag: ''
+    increment: Patch
+    prevent-increment-of-merged-branch-version: true
+    track-merge-target: false
+    source-branches: ['develop', 'release']
+  develop:
+    regex: '^dev(elop)?(ment)?$'
+    mode: ContinuousDeployment
+    tag: 'alpha'
+    increment: Minor
+    prevent-increment-of-merged-branch-version: false
+    track-merge-target: true
+    source-branches: []
+  release:
+    regex: '^releases?[/-]'
+    mode: ContinuousDelivery
+    tag: 'beta'
+    increment: None
+    prevent-increment-of-merged-branch-version: true
+    track-merge-target: false
+    source-branches: ['develop', 'main', 'support', 'release']
+  feature:
+    regex: '^features?[/-]'
+    mode: ContinuousDeployment
+    tag: 'alpha'
+    increment: Inherit
+    prevent-increment-of-merged-branch-version: false
+    track-merge-target: false
+    source-branches: ['develop', 'main', 'release', 'feature', 'support', 'hotfix']
+  pull-request:
+    regex: '^(pull|pull\-requests|pr)[/-]'
+    mode: ContinuousDeployment
+    tag: 'PullRequest'
+    increment: Inherit
+    prevent-increment-of-merged-branch-version: false
+    track-merge-target: false
+    source-branches: ['develop', 'main', 'release', 'feature', 'support', 'hotfix']
+  hotfix:
+    regex: '^hotfix(es)?[/-]'
+    mode: ContinuousDeployment
+    tag: 'beta'
+    increment: Patch
+    prevent-increment-of-merged-branch-version: false
+    track-merge-target: false
+    source-branches: ['release', 'main', 'support', 'hotfix']
+  support:
+    regex: '^support[/-]'
+    mode: ContinuousDelivery
+    tag: ''
+    increment: Patch
+    prevent-increment-of-merged-branch-version: true
+    track-merge-target: false
+    source-branches: ['main']
+ignore:
+  sha: []
+merge-message-formats: {}

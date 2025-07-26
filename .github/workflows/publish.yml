@@ -4,6 +4,9 @@
 name: Build and Release
 
 on:
+  push:
+    tags:
+      - 'v*'  # Triggers on version tags like v1.0.0
   workflow_dispatch:  # Allows manual triggering
 
 jobs:
@@ -14,83 +17,8 @@ jobs:
     - name: Checkout code
       uses: actions/checkout@v4
       with:
-        fetch-depth: 0  # Fetch full history for GitVersion
+        fetch-depth: 0  # Required for GitVersion
       
-    - name: Create GitVersion configuration
-      run: |
-        cat > GitVersion.yml << 'EOF'
-        mode: ContinuousDelivery
-        branches:
-          main:
-            regex: ^master$|^main$
-            mode: ContinuousDelivery
-            tag: ''
-            increment: Patch
-            prevent-increment-of-merged-branch-version: true
-            track-merge-target: false
-            source-branches: ['develop', 'feature', 'support', 'hotfix']
-            tracks-release-branches: false
-            is-release-branch: false
-            is-mainline: true
-          develop:
-            regex: ^dev(elop)?(ment)?$
-            mode: ContinuousDeployment
-            tag: alpha
-            increment: Minor
-            prevent-increment-of-merged-branch-version: false
-            track-merge-target: true
-            source-branches: []
-            tracks-release-branches: true
-            is-release-branch: false
-            is-mainline: false
-          feature:
-            regex: ^features?[/-]
-            mode: ContinuousDeployment
-            tag: useBranchName
-            increment: Inherit
-            prevent-increment-of-merged-branch-version: false
-            track-merge-target: false
-            source-branches: ['develop', 'main', 'release', 'feature', 'support', 'hotfix']
-            tracks-release-branches: false
-            is-release-branch: false
-            is-mainline: false
-          release:
-            regex: ^releases?[/-]
-            mode: ContinuousDelivery
-            tag: beta
-            increment: None
-            prevent-increment-of-merged-branch-version: true
-            track-merge-target: false
-            source-branches: ['develop', 'main', 'support', 'release']
-            tracks-release-branches: false
-            is-release-branch: true
-            is-mainline: false
-          hotfix:
-            regex: ^hotfix(es)?[/-]
-            mode: ContinuousDelivery
-            tag: beta
-            increment: Patch
-            prevent-increment-of-merged-branch-version: false
-            track-merge-target: false
-            source-branches: ['release', 'main', 'support', 'hotfix']
-            tracks-release-branches: false
-            is-release-branch: false
-            is-mainline: false
-        ignore:
-          sha: []
-        increment: Inherit
-        commit-message-incrementing:
-          enabled: true
-          bump-message: '\+semver:\s?(breaking|major|feature|minor|fix|patch)'
-          major-pattern: '\+semver:\s?(breaking|major)'
-          minor-pattern: '\+semver:\s?(feature|minor)'
-          patch-pattern: '\+semver:\s?(fix|patch)'
-          no-bump-message: '\+semver:\s?(none|skip)'
-        merge-message:
-          mode: MergeCommitOnly
-        update-build-number: true
-        EOF
-        
     - name: Install GitVersion
       uses: gittools/actions/gitversion/setup@v0.10.2
       with:
@@ -106,13 +34,13 @@ jobs:
     - name: Setup .NET
       uses: actions/setup-dotnet@v4
       with:
-        dotnet-version: '9.0.x'  # Adjust version as needed
+        dotnet-version: '8.0.x'  # Adjust version as needed
         
     - name: Restore dependencies
       run: dotnet restore
       
     - name: Build project
-      run: dotnet build --configuration Release --no-restore
+      run: dotnet build --configuration Release --no-restore -p:Version=${{ steps.gitversion.outputs.assemblySemVer }} -p:AssemblyVersion=${{ steps.gitversion.outputs.assemblySemVer }} -p:FileVersion=${{ steps.gitversion.outputs.assemblySemFileVer }}
       
     - name: Run tests (if any)
       run: dotnet test --configuration Release --no-build --verbosity normal
@@ -128,266 +56,36 @@ jobs:
         cd ..
         zip -r BudgetOpenAPICSharpCodeCreator-${{ steps.gitversion.outputs.semVer }}.zip publish/
         
-    - name: Analyze conventional commits for release notes
-      id: conventional_commits
+    - name: Generate release notes
+      id: release_notes
       run: |
-        # Get commits since last tag or from beginning if no tags
-        LAST_TAG=$(git describe --tags --abbrev=0 2>/dev/null || echo "")
-        if [ -z "$LAST_TAG" ]; then
-          COMMIT_RANGE="HEAD"
-        else
-          COMMIT_RANGE="${LAST_TAG}..HEAD"
-        fi
-        
-        echo "Analyzing commits in range: $COMMIT_RANGE"
-        
-        # Initialize arrays for different types of changes
-        BREAKING_CHANGES=""
-        FEATURES=""
-        FIXES=""
-        CHORES=""
-        DOCS=""
-        STYLES=""
-        REFACTORS=""
-        TESTS=""
-        PERFORMANCE=""
-        OTHER_CHANGES=""
-        
-        # Process each commit
-        while IFS= read -r commit_hash; do
-          if [ -z "$commit_hash" ]; then
-            continue
-          fi
-          
-          # Get commit message
-          commit_msg=$(git log --format=%s -n 1 "$commit_hash" 2>/dev/null || echo "")
-          commit_body=$(git log --format=%b -n 1 "$commit_hash" 2>/dev/null || echo "")
-          
-          if [ -z "$commit_msg" ]; then
-            continue
-          fi
-          
-          echo "Processing commit: $commit_hash - $commit_msg"
-          
-          # Check for breaking changes
-          if echo "$commit_msg" | grep -qiE "^[^:]*!:" || echo "$commit_body" | grep -qiE "^BREAKING CHANGE:" || echo "$commit_msg" | grep -qiE "\+semver:\s*(breaking|major)"; then
-            if [ -n "$BREAKING_CHANGES" ]; then
-              BREAKING_CHANGES="$BREAKING_CHANGES\n"
-            fi
-            BREAKING_CHANGES="${BREAKING_CHANGES}- $commit_msg"
-          # Check for conventional commit types
-          elif echo "$commit_msg" | grep -qiE "^feat(\([^)]*\))?!?:"; then
-            if [ -n "$FEATURES" ]; then
-              FEATURES="$FEATURES\n"
-            fi
-            FEATURES="${FEATURES}- $commit_msg"
-          elif echo "$commit_msg" | grep -qiE "^fix(\([^)]*\))?!?:"; then
-            if [ -n "$FIXES" ]; then
-              FIXES="$FIXES\n"
-            fi
-            FIXES="${FIXES}- $commit_msg"
-          elif echo "$commit_msg" | grep -qiE "^chore(\([^)]*\))?!?:"; then
-            if [ -n "$CHORES" ]; then
-              CHORES="$CHORES\n"
-            fi
-            CHORES="${CHORES}- $commit_msg"
-          elif echo "$commit_msg" | grep -qiE "^docs(\([^)]*\))?!?:"; then
-            if [ -n "$DOCS" ]; then
-              DOCS="$DOCS\n"
-            fi
-            DOCS="${DOCS}- $commit_msg"
-          elif echo "$commit_msg" | grep -qiE "^style(\([^)]*\))?!?:"; then
-            if [ -n "$STYLES" ]; then
-              STYLES="$STYLES\n"
-            fi
-            STYLES="${STYLES}- $commit_msg"
-          elif echo "$commit_msg" | grep -qiE "^refactor(\([^)]*\))?!?:"; then
-            if [ -n "$REFACTORS" ]; then
-              REFACTORS="$REFACTORS\n"
-            fi
-            REFACTORS="${REFACTORS}- $commit_msg"
-          elif echo "$commit_msg" | grep -qiE "^test(\([^)]*\))?!?:"; then
-            if [ -n "$TESTS" ]; then
-              TESTS="$TESTS\n"
-            fi
-            TESTS="${TESTS}- $commit_msg"
-          elif echo "$commit_msg" | grep -qiE "^perf(\([^)]*\))?!?:"; then
-            if [ -n "$PERFORMANCE" ]; then
-              PERFORMANCE="$PERFORMANCE\n"
-            fi
-            PERFORMANCE="${PERFORMANCE}- $commit_msg"
-          else
-            # Handle non-conventional commits or other patterns
-            if [ -n "$OTHER_CHANGES" ]; then
-              OTHER_CHANGES="$OTHER_CHANGES\n"
-            fi
-            OTHER_CHANGES="${OTHER_CHANGES}- $commit_msg"
-          fi
-        done < <(git rev-list "$COMMIT_RANGE" 2>/dev/null || echo "")
-        
-        # Build release notes
-        RELEASE_NOTES="## Release ${{ steps.gitversion.outputs.semVer }}\n\n"
-        RELEASE_NOTES="${RELEASE_NOTES}**Version:** ${{ steps.gitversion.outputs.semVer }}\n"
-        RELEASE_NOTES="${RELEASE_NOTES}**Build:** ${{ steps.gitversion.outputs.fullSemVer }}\n"
-        RELEASE_NOTES="${RELEASE_NOTES}**Commit:** ${{ github.sha }}\n"
-        RELEASE_NOTES="${RELEASE_NOTES}**Date:** $(date -u '+%Y-%m-%d %H:%M:%S UTC')\n\n"
-        
-        # Add sections only if they have content
-        if [ -n "$BREAKING_CHANGES" ]; then
-          RELEASE_NOTES="${RELEASE_NOTES}### 🚨 Breaking Changes\n${BREAKING_CHANGES}\n\n"
-        fi
-        
-        if [ -n "$FEATURES" ]; then
-          RELEASE_NOTES="${RELEASE_NOTES}### ✨ New Features\n${FEATURES}\n\n"
-        fi
-        
-        if [ -n "$FIXES" ]; then
-          RELEASE_NOTES="${RELEASE_NOTES}### 🐛 Bug Fixes\n${FIXES}\n\n"
-        fi
-        
-        if [ -n "$PERFORMANCE" ]; then
-          RELEASE_NOTES="${RELEASE_NOTES}### ⚡ Performance Improvements\n${PERFORMANCE}\n\n"
-        fi
-        
-        if [ -n "$REFACTORS" ]; then
-          RELEASE_NOTES="${RELEASE_NOTES}### ♻️ Code Refactoring\n${REFACTORS}\n\n"
-        fi
-        
-        if [ -n "$DOCS" ]; then
-          RELEASE_NOTES="${RELEASE_NOTES}### 📚 Documentation\n${DOCS}\n\n"
-        fi
-        
-        if [ -n "$STYLES" ]; then
-          RELEASE_NOTES="${RELEASE_NOTES}### 💄 Styles\n${STYLES}\n\n"
-        fi
-        
-        if [ -n "$TESTS" ]; then
-          RELEASE_NOTES="${RELEASE_NOTES}### 🧪 Tests\n${TESTS}\n\n"
-        fi
-        
-        if [ -n "$CHORES" ]; then
-          RELEASE_NOTES="${RELEASE_NOTES}### 🔧 Chores\n${CHORES}\n\n"
-        fi
-        
-        if [ -n "$OTHER_CHANGES" ]; then
-          RELEASE_NOTES="${RELEASE_NOTES}### 📝 Other Changes\n${OTHER_CHANGES}\n\n"
-        fi
-        
-        RELEASE_NOTES="${RELEASE_NOTES}### 📦 Assets\n"
-        RELEASE_NOTES="${RELEASE_NOTES}- \`BudgetOpenAPICSharpCodeCreator-${{ steps.gitversion.outputs.semVer }}.tar.gz\` - Linux/macOS archive\n"
-        RELEASE_NOTES="${RELEASE_NOTES}- \`BudgetOpenAPICSharpCodeCreator-${{ steps.gitversion.outputs.semVer }}.zip\` - Windows archive\n"
-        
-        # Output to GitHub Actions
-        {
-          echo "RELEASE_NOTES<<EOF"
-          echo -e "$RELEASE_NOTES"
-          echo "EOF"
-        } >> $GITHUB_OUTPUT
-        
-        echo "Generated release notes:"
-        echo -e "$RELEASE_NOTES"
+        echo "RELEASE_NOTES<<EOF" >> $GITHUB_OUTPUT
+        echo "## Release v${{ steps.gitversion.outputs.semVer }}" >> $GITHUB_OUTPUT
+        echo "" >> $GITHUB_OUTPUT
+        echo "### Version Information" >> $GITHUB_OUTPUT
+        echo "- Version: ${{ steps.gitversion.outputs.semVer }}" >> $GITHUB_OUTPUT
+        echo "- Assembly Version: ${{ steps.gitversion.outputs.assemblySemVer }}" >> $GITHUB_OUTPUT
+        echo "- Informational Version: ${{ steps.gitversion.outputs.informationalVersion }}" >> $GITHUB_OUTPUT
+        echo "" >> $GITHUB_OUTPUT
+        echo "### Changes" >> $GITHUB_OUTPUT
+        echo "- Built from commit: ${{ github.sha }}" >> $GITHUB_OUTPUT
+        echo "- Build date: $(date)" >> $GITHUB_OUTPUT
+        echo "" >> $GITHUB_OUTPUT
+        echo "### Files" >> $GITHUB_OUTPUT
+        echo "- \`BudgetOpenAPICSharpCodeCreator-${{ steps.gitversion.outputs.semVer }}.tar.gz\` - Linux/macOS archive" >> $GITHUB_OUTPUT
+        echo "- \`BudgetOpenAPICSharpCodeCreator-${{ steps.gitversion.outputs.semVer }}.zip\` - Windows archive" >> $GITHUB_OUTPUT
+        echo "EOF" >> $GITHUB_OUTPUT
         
     - name: Create GitHub Release
-      uses: softprops/action-gh-release@v2
+      uses: softprops/action-gh-release@v1
       with:
-        tag_name: ${{ steps.gitversion.outputs.semVer }}
-        name: Release ${{ steps.gitversion.outputs.semVer }}
-        body: ${{ steps.conventional_commits.outputs.RELEASE_NOTES }}
+        tag_name: v${{ steps.gitversion.outputs.semVer }}
+        name: Release v${{ steps.gitversion.outputs.semVer }}
+        body: ${{ steps.release_notes.outputs.RELEASE_NOTES }}
         draft: false
         prerelease: ${{ steps.gitversion.outputs.preReleaseTag != '' }}
         files: |
           BudgetOpenAPICSharpCodeCreator-${{ steps.gitversion.outputs.semVer }}.tar.gz
           BudgetOpenAPICSharpCodeCreator-${{ steps.gitversion.outputs.semVer }}.zip
-        make_latest: ${{ steps.gitversion.outputs.preReleaseTag == '' }}
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-  # Alternative workflow for automatic versioning on main branch
-  auto-version:
-    runs-on: ubuntu-latest
-    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
-    
-    steps:
-    - name: Checkout code
-      uses: actions/checkout@v4
-      with:
-        fetch-depth: 0
-        token: ${{ secrets.GITHUB_TOKEN }}
-        
-    - name: Create GitVersion configuration
-      run: |
-        cat > GitVersion.yml << 'EOF'
-        mode: ContinuousDelivery
-        branches:
-          main:
-            regex: ^master$|^main$
-            mode: ContinuousDelivery
-            tag: ''
-            increment: Patch
-            prevent-increment-of-merged-branch-version: true
-            track-merge-target: false
-            source-branches: ['develop', 'feature', 'support', 'hotfix']
-            tracks-release-branches: false
-            is-release-branch: false
-            is-mainline: true
-        ignore:
-          sha: []
-        increment: Inherit
-        commit-message-incrementing:
-          enabled: true
-          bump-message: '\+semver:\s?(breaking|major|feature|minor|fix|patch)'
-          major-pattern: '\+semver:\s?(breaking|major)'
-          minor-pattern: '\+semver:\s?(feature|minor)'
-          patch-pattern: '\+semver:\s?(fix|patch)'
-          no-bump-message: '\+semver:\s?(none|skip)'
-        merge-message:
-          mode: MergeCommitOnly
-        update-build-number: true
-        EOF
-        
-    - name: Install GitVersion
-      uses: gittools/actions/gitversion/setup@v0.10.2
-      with:
-        versionSpec: '5.x'
-        
-    - name: Determine Version
-      id: gitversion
-      uses: gittools/actions/gitversion/execute@v0.10.2
-      with:
-        useConfigFile: true
-        configFilePath: GitVersion.yml
-        
-    - name: Check if version should be bumped
-      id: check_bump
-      run: |
-        # Get the last commit message
-        LAST_COMMIT_MSG=$(git log -1 --pretty=%B)
-        
-        # Check if commit should be ignored for versioning
-        if echo "$LAST_COMMIT_MSG" | grep -qiE "\+semver:\s*(none|skip)"; then
-          echo "should_bump=false" >> $GITHUB_OUTPUT
-          echo "Skipping version bump due to +semver: none/skip"
-        elif echo "$LAST_COMMIT_MSG" | grep -qiE "^(chore|docs|style|test)(\([^)]*\))?:" && ! echo "$LAST_COMMIT_MSG" | grep -qiE "\+semver:"; then
-          echo "should_bump=false" >> $GITHUB_OUTPUT
-          echo "Skipping version bump for maintenance commit without explicit semver instruction"
-        else
-          echo "should_bump=true" >> $GITHUB_OUTPUT
-          echo "Version bump is needed"
-        fi
-        
-    - name: Create and push tag
-      if: steps.check_bump.outputs.should_bump == 'true'
-      run: |
-        git config user.name "github-actions[bot]"
-        git config user.email "github-actions[bot]@users.noreply.github.com"
-        
-        TAG_NAME="v${{ steps.gitversion.outputs.semVer }}"
-        
-        # Check if tag already exists
-        if git rev-parse "$TAG_NAME" >/dev/null 2>&1; then
-          echo "Tag $TAG_NAME already exists, skipping tag creation"
-        else
-          git tag -a "$TAG_NAME" -m "Release $TAG_NAME"
-          git push origin "$TAG_NAME"
-          echo "Created and pushed tag: $TAG_NAME"
-        fi
