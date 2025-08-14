@@ -277,7 +277,7 @@ internal class ClientGenerator
             {
                 clientBuilder.AppendLine("            using var content = new MultipartFormDataContent();");
 
-                // Check if the request body is directly a FormFile or has a File property
+                // Check if the request body is directly a FormFile, FormFile[] or has a File property
                 var requestBodyType = GetRequestBodyType(operation.RequestBody);
                 if (requestBodyType == "FormFile")
                 {
@@ -285,9 +285,26 @@ internal class ClientGenerator
                     clientBuilder.AppendLine("            // Add file content directly from FormFile");
                     clientBuilder.AppendLine("            if (requestBody != null) { var fileContent = new StreamContent(requestBody.FileStream); content.Add(fileContent, \"file\", requestBody.FileName); }");
                 }
+                else if (requestBodyType == "FormFile[]")
+                {
+                    // Case 2: requestBody is an array of FormFile
+                    clientBuilder.AppendLine("            // Add each file in the FormFile[] array");
+                    clientBuilder.AppendLine("            if (requestBody != null)");
+                    clientBuilder.AppendLine("            {");
+                    clientBuilder.AppendLine("                foreach (var file in requestBody)");
+                    clientBuilder.AppendLine("                {");
+                    clientBuilder.AppendLine("                    if (file?.FileStream != null)");
+                    clientBuilder.AppendLine("                    {");
+                    clientBuilder.AppendLine("                        var fileContent = new StreamContent(file.FileStream);");
+                    clientBuilder.AppendLine("                        content.Add(fileContent, \"files\", file.FileName);");
+                    clientBuilder.AppendLine("                    }");
+                    clientBuilder.AppendLine("                }");
+                    clientBuilder.AppendLine("            }");
+                }
                 else
                 {
-                    // Case 2: requestBody has properties including possibly a File property
+                    clientBuilder.AppendLine($"            // Request Body Type is: {requestBodyType}");
+                    // Case 3: requestBody has properties including possibly a File property
                     clientBuilder.AppendLine("            // Add form fields");
                     clientBuilder.AppendLine("            var requestProps = typeof(" + requestBodyType + ").GetProperties();");
                     clientBuilder.AppendLine("            foreach (var prop in requestProps)");
@@ -373,7 +390,12 @@ internal class ClientGenerator
     {
         if (schema == null) return "object";
 
-        if (schema.Properties is { Count: > 0 } && schema.Properties.Any(e => e.Value?.Reference == "#/components/schemas/IFormFile")) return "FormFile";
+        // Handle IFormFile and IFormFileCollection
+        if (schema.Properties is { Count: > 0 })
+        {
+            if (schema.Properties.Any(e => e.Value?.Reference == "#/components/schemas/IFormFile")) return "FormFile";
+            if (schema.Properties.Any(e => e.Value?.Reference == "#/components/schemas/IFormFileCollection")) return "FormFile[]";
+        }
 
         if (!string.IsNullOrEmpty(schema.Reference))
         {
@@ -383,13 +405,18 @@ internal class ClientGenerator
             var refPath = schema.Reference;
             var schemaName = refPath.Split('/').Last();
 
+            // Special handling for IFormFileCollection reference
+            if (schema.Reference == "#/components/schemas/IFormFileCollection") return "FormFile[]";
+            if (schema.Reference == "#/components/schemas/IFormFile") return "FormFile";
+
             return ToPascalCase(schemaName);
         }
 
         if (schema.Type == "array")
         {
             var itemType = GetSchemaType(schema.Items);
-
+            // If the item type is FormFile, treat as an array
+            if (itemType == "FormFile") return "FormFile[]";
             return $"List<{itemType}>";
         }
 
