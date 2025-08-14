@@ -257,29 +257,23 @@ internal class ClientGenerator
         clientBuilder.AppendLine("        )");
         clientBuilder.AppendLine("        {");
         clientBuilder.AppendLine($"            var requestUri = $\"{routePath}\";");
+        clientBuilder.AppendLine($"            using var request = new HttpRequestMessage(HttpMethod.{httpMethod}, requestUri);");
 
-        if (HasApiKeyAuth()) clientBuilder.AppendLine($"            if (!string.IsNullOrEmpty(_options.ApiKey)) {{ _httpClient.DefaultRequestHeaders.Add(\"{GetApiKeyName()}\", _options.ApiKey); }}");
+        if (HasApiKeyAuth()) clientBuilder.AppendLine($"            if (!string.IsNullOrEmpty(_options.ApiKey)) {{ request.Headers.Add(\"{GetApiKeyName()}\", _options.ApiKey); }}");
+
 
         if (operation.Parameters != null)
             foreach (var param in operation.Parameters.Where(p => p.In == "header" && p.Name != GetApiKeyName()))
             {
                 var pname = ToCamelCase(param.Name.Replace("-", ""));
-                clientBuilder.AppendLine($"            if ({pname} != null) _httpClient.DefaultRequestHeaders.Add(\"{param.Name}\", {pname});");
+                clientBuilder.AppendLine($"            if ({pname} != null) request.Headers.Add(\"{param.Name}\", {pname});");
             }
+        
+        
 
-        // HTTP call
-        if (httpMethod == "Get")
-        {
-            clientBuilder.AppendLine("            var response = await _httpClient.GetAsync(requestUri);");
-        }
-        else if (httpMethod == "Delete")
-        {
-            clientBuilder.AppendLine("            var response = await _httpClient.DeleteAsync(requestUri);");
-        }
-        else if (httpMethod is "Post" or "Put")
+        if (httpMethod is "Post" or "Put")
         {
             if (operation.RequestBody != null && operation.RequestBody.Content.ContainsKey("multipart/form-data"))
-
             {
                 clientBuilder.AppendLine("            using var content = new MultipartFormDataContent();");
 
@@ -313,27 +307,18 @@ internal class ClientGenerator
                     clientBuilder.AppendLine("                content.Add(new StringContent(value.ToString()), prop.Name.ToLower());");
                     clientBuilder.AppendLine("            }");
                 }
-
-                clientBuilder.AppendLine();
-                clientBuilder.AppendLine(httpMethod == "Post"
-                    ? "            var response = await _httpClient.PostAsync(requestUri, content);"
-                    : "            var response = await _httpClient.PutAsync(requestUri, content);");
+                
+                clientBuilder.AppendLine("            request.Content = content;");
             }
 
             else if (operation.RequestBody != null && operation.RequestBody.Content.ContainsKey("application/json"))
             {
-                clientBuilder.AppendLine(httpMethod == "Post"
-                    ? "            var response = await _httpClient.PostAsJsonAsync(requestUri, requestBody);"
-                    : "            var response = await _httpClient.PutAsJsonAsync(requestUri, requestBody);");
-            }
-            else
-            {
-                clientBuilder.AppendLine(httpMethod == "Post"
-                    ? "            var response = await _httpClient.PostAsync(requestUri, null);"
-                    : "            var response = await _httpClient.PutAsync(requestUri, null);");
+                
+                clientBuilder.AppendLine("            request.Content = JsonContent.Create(requestBody);");
             }
         }
-
+        
+        clientBuilder.AppendLine("            var response = await _httpClient.SendAsync(request);");
         clientBuilder.AppendLine();
         clientBuilder.AppendLine("            response.EnsureSuccessStatusCode();");
 
