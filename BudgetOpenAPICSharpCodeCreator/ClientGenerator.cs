@@ -412,7 +412,8 @@ internal class ClientGenerator
             return ToPascalCase(schemaName);
         }
 
-        if (schema.Type == "array")
+        //if (schema.Type == "array")
+        if (schema.IsArray)
         {
             var itemType = GetSchemaType(schema.Items);
             // If the item type is FormFile, treat as an array
@@ -420,31 +421,27 @@ internal class ClientGenerator
             return $"List<{itemType}>";
         }
 
-        switch (schema.Type)
+        // For schemas where "type" may be an array (e.g. ["integer","string"]),
+        // prefer checking each possible type in a sensible order instead of
+        // relying on a single Type string.
+        if (schema.HasType("integer"))
+            return schema.Format == "int64" ? "long" : "int";
+
+        if (schema.HasType("number"))
+            return schema.Format == "float" ? "float" : "double";
+
+        if (schema.HasType("string"))
         {
-            case "integer":
-                return schema.Format == "int64" ? "long" : "int";
-            case "number":
-                return schema.Format == "float" ? "float" : "double";
-            case "string":
-                switch (schema.Format)
-                {
-                    case "date-time":
-                        return "DateTime";
-                    case "byte":
-                        return "byte[]";
-                    case "binary":
-                        return "Stream";
-                    default:
-                        return "string";
-                }
-            case "boolean":
-                return "bool";
-            case "object":
-                return "object";
-            default:
-                return "object";
+            if (schema.Format == "date-time") return "DateTime";
+            if (schema.Format == "byte") return "byte[]";
+            if (schema.Format == "binary") return "Stream";
+            return "string";
         }
+
+        if (schema.HasType("boolean")) return "bool";
+        if (schema.HasType("object")) return "object";
+
+        return "object";
     }
 
     private string GetParameterType(SchemaObject schema)
